@@ -1,0 +1,21 @@
+# secrets & config
+.env
+
+# database
+*.sqlite
+*.sqlite3
+*.db
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# whisper / temp audio
+tmp/
+*.wav
+*.ogg
+
+# os
+.DS_Store

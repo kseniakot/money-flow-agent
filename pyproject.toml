@@ -1,0 +1,14 @@
+[project]
+name = "money-flow-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain-openai>=1.4.3",
+    "langgraph>=1.2.11",
+    "matplotlib>=3.11.1",
+    "mcp[cli]>=2.0.0",
+    "python-dotenv>=1.2.2",
+    "python-telegram-bot>=22.8",
+]
