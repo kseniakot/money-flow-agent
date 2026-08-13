@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import date as date_cls
+from urllib.error import URLError
 from urllib.request import urlopen
 
 from app.config import config
@@ -16,10 +17,16 @@ def _parse_rate(payload: dict) -> float:
     return float(payload["Cur_OfficialRate"]) / float(payload["Cur_Scale"])
 
 
-def _fetch(currency: str) -> float:
-    with urlopen(config.nbrb_url.format(cur=currency), timeout=10) as resp:
-        payload = json.loads(resp.read().decode())
-    return _parse_rate(payload)
+def _fetch(currency: str, attempts: int = 3) -> float:
+    last_err: Exception | None = None
+    for _ in range(attempts):
+        try:
+            with urlopen(config.nbrb_url.format(cur=currency), timeout=10) as resp:
+                payload = json.loads(resp.read().decode())
+            return _parse_rate(payload)
+        except (URLError, TimeoutError, ValueError, KeyError) as err:
+            last_err = err
+    raise last_err
 
 
 def cached_byn_per_unit(
@@ -28,6 +35,16 @@ def cached_byn_per_unit(
     row = conn.execute(
         "SELECT byn_per_unit FROM rates WHERE date = ? AND currency = ?",
         (on_date, currency),
+    ).fetchone()
+    return float(row["byn_per_unit"]) if row else None
+
+
+def latest_cached_byn_per_unit(
+    conn: sqlite3.Connection, currency: str
+) -> float | None:
+    row = conn.execute(
+        "SELECT byn_per_unit FROM rates WHERE currency = ? ORDER BY date DESC LIMIT 1",
+        (currency,),
     ).fetchone()
     return float(row["byn_per_unit"]) if row else None
 
@@ -55,7 +72,13 @@ def byn_per_unit(
     cached = cached_byn_per_unit(conn, currency, on_date)
     if cached is not None:
         return cached
-    value = _fetch(currency)
+    try:
+        value = _fetch(currency)
+    except (URLError, TimeoutError, ValueError, KeyError):
+        stale = latest_cached_byn_per_unit(conn, currency)
+        if stale is not None:
+            return stale
+        raise
     upsert_rate(conn, on_date, currency, value)
     return value
 

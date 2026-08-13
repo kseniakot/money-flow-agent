@@ -24,3 +24,28 @@ def test_to_usd_with_cached_rates():
     assert rates.to_usd(conn, 10, "USD", "2026-08-13") == 10.0
     assert rates.to_usd(conn, 30, "BYN", "2026-08-13") == 10.0
     assert round(rates.to_usd(conn, 100, "EUR", "2026-08-13"), 2) == 110.0
+
+
+def test_falls_back_to_stale_rate_on_fetch_error(monkeypatch):
+    conn = make_conn()
+    rates.upsert_rate(conn, "2026-08-01", "USD", 2.5)
+
+    def boom(_cur):
+        raise rates.URLError("down")
+
+    monkeypatch.setattr(rates, "_fetch", boom)
+    assert rates.byn_per_unit(conn, "USD", "2026-08-13") == 2.5
+
+
+def test_raises_when_no_cache_and_fetch_error(monkeypatch):
+    conn = make_conn()
+
+    def boom(_cur):
+        raise rates.URLError("down")
+
+    monkeypatch.setattr(rates, "_fetch", boom)
+    try:
+        rates.byn_per_unit(conn, "USD", "2026-08-13")
+        assert False, "expected URLError"
+    except rates.URLError:
+        pass
