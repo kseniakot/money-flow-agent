@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS expenses (
     source TEXT NOT NULL CHECK (source IN ('text', 'voice', 'receipt', 'subscription')),
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
+
+CREATE TABLE IF NOT EXISTS rates (
+    date TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    byn_per_unit NUMERIC NOT NULL,
+    PRIMARY KEY (date, currency)
+);
 """
 
 
