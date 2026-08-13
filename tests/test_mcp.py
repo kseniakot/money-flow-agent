@@ -7,36 +7,52 @@ def setup_db(tmp_path):
     m.init()
 
 
-def test_agent_surface_read_and_write(tmp_path):
+def test_agent_surface(tmp_path):
     setup_db(tmp_path)
 
     conn = db.get_conn(m._db_path)
     user = db.upsert_user(conn, tg_user_id=7, tg_username="quantik")
 
     assert m.categories_list() == []
+    assert m.find_product("молоко") is None
 
-    cat = m.create_category("молочная продукция")
-    prod = m.upsert_product("молоко", cat["id"])
-
-    assert m.categories_list() == [{"id": cat["id"], "name": "молочная продукция"}]
-    assert m.find_product("молоко")["category_name"] == "молочная продукция"
-    assert m.find_product("нет") is None
-
-    res = m.add_expenses(
-        user["id"],
-        [
-            {
-                "product_id": prod["id"],
-                "qty": 1,
-                "price": 1.92,
-                "currency": "BYN",
-                "purchased_at": "2026-08-13 10:00:00",
-                "place": None,
-                "source": "text",
-            }
+    res = m.save_expenses(
+        user_id=user["id"],
+        items=[
+            {"name": "молоко", "category": "молочная продукция", "qty": 1, "price": 1.92},
+            {"name": "голубика", "category": "ягоды", "qty": 1, "price": 20.0},
         ],
+        currency="BYN",
+        purchased_at="2026-08-13 10:00:00",
+        source="text",
     )
-    assert res["inserted"] == 1
+    assert res["inserted"] == 2
+
+    names = {c["name"] for c in m.categories_list()}
+    assert names == {"молочная продукция", "ягоды"}
+    assert m.find_product("молоко")["category_name"] == "молочная продукция"
 
     rows = db.query_expenses(conn, "2026-08-01", "2026-08-31", user["id"])
-    assert rows[0]["product_name"] == "молоко"
+    assert len(rows) == 2
+
+
+def test_save_expenses_reuses_existing_category(tmp_path):
+    setup_db(tmp_path)
+    conn = db.get_conn(m._db_path)
+    user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
+
+    m.save_expenses(
+        user_id=user["id"],
+        items=[{"name": "молоко", "category": "молочная продукция", "qty": 1, "price": 1.9}],
+        currency="BYN",
+        purchased_at="2026-08-13 10:00:00",
+        source="text",
+    )
+    m.save_expenses(
+        user_id=user["id"],
+        items=[{"name": "масло", "category": "молочная продукция", "qty": 1, "price": 4.6}],
+        currency="BYN",
+        purchased_at="2026-08-13 11:00:00",
+        source="text",
+    )
+    assert len(m.categories_list()) == 1

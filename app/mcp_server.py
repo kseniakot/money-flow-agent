@@ -42,28 +42,19 @@ def find_product(name: str) -> dict | None:
 
 
 @mcp.tool()
-def create_category(name: str) -> dict:
+def save_expenses(
+    user_id: int,
+    items: list[dict],
+    currency: str,
+    purchased_at: str,
+    source: str,
+    place: str | None = None,
+) -> dict:
     conn = _conn()
     try:
-        return db.create_category(conn, name)
-    finally:
-        conn.close()
-
-
-@mcp.tool()
-def upsert_product(name: str, category_id: int) -> dict:
-    conn = _conn()
-    try:
-        return db.upsert_product(conn, name, category_id)
-    finally:
-        conn.close()
-
-
-@mcp.tool()
-def add_expenses(user_id: int, items: list[dict]) -> dict:
-    conn = _conn()
-    try:
-        return db.add_expenses(conn, user_id, items)
+        return db.save_expenses(
+            conn, user_id, items, currency, purchased_at, source, place
+        )
     finally:
         conn.close()
 

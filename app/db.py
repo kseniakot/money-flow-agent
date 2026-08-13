@@ -188,6 +188,33 @@ def add_expenses(
     return {"inserted": len(ids), "ids": ids}
 
 
+def save_expenses(
+    conn: sqlite3.Connection,
+    user_id: int,
+    items: list[dict],
+    currency: str,
+    purchased_at: str,
+    source: str,
+    place: str | None = None,
+) -> dict:
+    expense_items = []
+    for it in items:
+        category = create_category(conn, it["category"])
+        product = upsert_product(conn, it["name"], category["id"])
+        expense_items.append(
+            {
+                "product_id": product["id"],
+                "qty": it.get("qty", 1),
+                "price": it.get("price"),
+                "currency": currency,
+                "purchased_at": purchased_at,
+                "place": place,
+                "source": source,
+            }
+        )
+    return add_expenses(conn, user_id, expense_items)
+
+
 def query_expenses(
     conn: sqlite3.Connection, start: str, end: str, user_id: int
 ) -> list[dict]:
