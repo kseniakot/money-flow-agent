@@ -20,6 +20,9 @@ def init() -> None:
     conn.close()
 
 
+init()
+
+
 @mcp.resource("categories://list")
 def categories_list() -> list[dict]:
     conn = _conn()
@@ -158,5 +161,4 @@ def deactivate_subscription(subscription_id: int) -> dict:
 
 
 if __name__ == "__main__":
-    init()
     mcp.run()
