@@ -36,16 +36,13 @@ def categories_list() -> list[dict]:
 def save_expenses(
     user_id: int,
     items: list[dict],
-    currency: str,
     purchased_at: str,
     source: str,
     place: str | None = None,
 ) -> dict:
     conn = _conn()
     try:
-        return db.save_expenses(
-            conn, user_id, items, currency, purchased_at, source, place
-        )
+        return db.save_expenses(conn, user_id, items, purchased_at, source, place)
     finally:
         conn.close()
 

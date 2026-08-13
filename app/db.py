@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     wallet_id INTEGER REFERENCES wallets(id),
     subscription_id INTEGER REFERENCES subscriptions(id),
     qty NUMERIC NOT NULL DEFAULT 1,
+    unit_price NUMERIC,
     price NUMERIC,
     currency TEXT NOT NULL,
     purchased_at TEXT NOT NULL,
@@ -153,9 +154,9 @@ def add_expenses(
         cur = conn.execute(
             """
             INSERT INTO expenses
-                (user_id, product_id, wallet_id, subscription_id, qty, price,
-                 currency, purchased_at, place, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (user_id, product_id, wallet_id, subscription_id, qty, unit_price,
+                 price, currency, purchased_at, place, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -163,6 +164,7 @@ def add_expenses(
                 wallet["id"],
                 it.get("subscription_id"),
                 it.get("qty", 1),
+                it.get("unit_price"),
                 it.get("price"),
                 it["currency"],
                 it["purchased_at"],
@@ -179,7 +181,6 @@ def save_expenses(
     conn: sqlite3.Connection,
     user_id: int,
     items: list[dict],
-    currency: str,
     purchased_at: str,
     source: str,
     place: str | None = None,
@@ -192,8 +193,9 @@ def save_expenses(
             {
                 "product_id": product["id"],
                 "qty": it.get("qty", 1),
+                "unit_price": it.get("unit_price"),
                 "price": it.get("price"),
-                "currency": currency,
+                "currency": it["currency"],
                 "purchased_at": purchased_at,
                 "place": place,
                 "source": source,
@@ -208,7 +210,8 @@ def query_expenses(
     rows = conn.execute(
         """
         SELECT
-            e.id, e.qty, e.price, e.currency, e.purchased_at, e.place, e.source,
+            e.id, e.qty, e.unit_price, e.price, e.currency, e.purchased_at,
+            e.place, e.source,
             p.name AS product_name,
             c.name AS category_name
         FROM expenses e
