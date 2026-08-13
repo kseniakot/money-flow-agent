@@ -21,6 +21,7 @@ class Config:
     whisper_bin: str
     whisper_model: str
     default_currency: str
+    nbrb_url: str
 
 
 def load_config() -> Config:
@@ -33,6 +34,9 @@ def load_config() -> Config:
         whisper_bin=os.environ.get("WHISPER_BIN", "whisper"),
         whisper_model=os.environ.get("WHISPER_MODEL", "medium"),
         default_currency=os.environ.get("DEFAULT_CURRENCY", "BYN"),
+        nbrb_url=os.environ.get(
+            "NBRB_URL", "https://api.nbrb.by/exrates/rates/{cur}?parammode=2"
+        ),
     )
 
 

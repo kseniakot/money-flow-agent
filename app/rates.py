@@ -5,7 +5,7 @@ import sqlite3
 from datetime import date as date_cls
 from urllib.request import urlopen
 
-NBRB_URL = "https://api.nbrb.by/exrates/rates/{cur}?parammode=2"
+from app.config import config
 
 
 def _today() -> str:
@@ -17,7 +17,7 @@ def _parse_rate(payload: dict) -> float:
 
 
 def _fetch(currency: str) -> float:
-    with urlopen(NBRB_URL.format(cur=currency), timeout=10) as resp:
+    with urlopen(config.nbrb_url.format(cur=currency), timeout=10) as resp:
         payload = json.loads(resp.read().decode())
     return _parse_rate(payload)
 
