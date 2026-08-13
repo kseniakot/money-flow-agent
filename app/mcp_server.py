@@ -33,15 +33,6 @@ def categories_list() -> list[dict]:
 
 
 @mcp.tool()
-def find_product(name: str) -> dict | None:
-    conn = _conn()
-    try:
-        return db.find_product(conn, name)
-    finally:
-        conn.close()
-
-
-@mcp.tool()
 def save_expenses(
     user_id: int,
     items: list[dict],

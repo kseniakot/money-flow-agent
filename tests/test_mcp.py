@@ -14,7 +14,6 @@ def test_agent_surface(tmp_path):
     user = db.upsert_user(conn, tg_user_id=7, tg_username="quantik")
 
     assert m.categories_list() == []
-    assert m.find_product("молоко") is None
 
     res = m.save_expenses(
         user_id=user["id"],
@@ -30,7 +29,6 @@ def test_agent_surface(tmp_path):
 
     names = {c["name"] for c in m.categories_list()}
     assert names == {"молочная продукция", "ягоды"}
-    assert m.find_product("молоко")["category_name"] == "молочная продукция"
 
     rows = db.query_expenses(conn, "2026-08-01", "2026-08-31", user["id"])
     assert len(rows) == 2

@@ -131,19 +131,6 @@ def create_category(conn: sqlite3.Connection, name: str) -> dict:
     return _row(row)
 
 
-def find_product(conn: sqlite3.Connection, name: str) -> dict | None:
-    row = conn.execute(
-        """
-        SELECT p.id, p.name, p.category_id, c.name AS category_name
-        FROM products p
-        JOIN categories c ON c.id = p.category_id
-        WHERE p.name = ?
-        """,
-        (name,),
-    ).fetchone()
-    return _row(row)
-
-
 def upsert_product(conn: sqlite3.Connection, name: str, category_id: int) -> dict:
     conn.execute(
         """

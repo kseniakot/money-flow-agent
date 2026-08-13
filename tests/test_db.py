@@ -50,15 +50,6 @@ def test_insert_and_read_expense():
     assert r["currency"] == "BYN"
 
 
-def test_find_product_returns_category():
-    conn = make_conn()
-    cat = db.create_category(conn, "ягоды")
-    db.upsert_product(conn, "голубика", cat["id"])
-    found = db.find_product(conn, "голубика")
-    assert found["category_name"] == "ягоды"
-    assert db.find_product(conn, "нет такого") is None
-
-
 def test_create_category_idempotent():
     conn = make_conn()
     a = db.create_category(conn, "бакалея")
