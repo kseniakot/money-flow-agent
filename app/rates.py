@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import date as date_cls
 from urllib.error import URLError
 from urllib.request import urlopen
 
 from app.config import config
+
+_cache: dict[tuple[str, str], float] = {}
 
 
 def _today() -> str:
@@ -29,67 +30,25 @@ def _fetch(currency: str, attempts: int = 3) -> float:
     raise last_err
 
 
-def cached_byn_per_unit(
-    conn: sqlite3.Connection, currency: str, on_date: str
-) -> float | None:
-    row = conn.execute(
-        "SELECT byn_per_unit FROM rates WHERE date = ? AND currency = ?",
-        (on_date, currency),
-    ).fetchone()
-    return float(row["byn_per_unit"]) if row else None
+def clear_cache() -> None:
+    _cache.clear()
 
 
-def latest_cached_byn_per_unit(
-    conn: sqlite3.Connection, currency: str
-) -> float | None:
-    row = conn.execute(
-        "SELECT byn_per_unit FROM rates WHERE currency = ? ORDER BY date DESC LIMIT 1",
-        (currency,),
-    ).fetchone()
-    return float(row["byn_per_unit"]) if row else None
-
-
-def upsert_rate(
-    conn: sqlite3.Connection, on_date: str, currency: str, byn_per_unit: float
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO rates (date, currency, byn_per_unit) VALUES (?, ?, ?)
-        ON CONFLICT(date, currency) DO UPDATE SET byn_per_unit = excluded.byn_per_unit
-        """,
-        (on_date, currency, byn_per_unit),
-    )
-    conn.commit()
-
-
-def byn_per_unit(
-    conn: sqlite3.Connection, currency: str, on_date: str | None = None
-) -> float:
+def byn_per_unit(currency: str, on_date: str | None = None) -> float:
     currency = currency.upper()
     if currency == "BYN":
         return 1.0
     on_date = on_date or _today()
-    cached = cached_byn_per_unit(conn, currency, on_date)
-    if cached is not None:
-        return cached
-    try:
-        value = _fetch(currency)
-    except (URLError, TimeoutError, ValueError, KeyError):
-        stale = latest_cached_byn_per_unit(conn, currency)
-        if stale is not None:
-            return stale
-        raise
-    upsert_rate(conn, on_date, currency, value)
+    key = (currency, on_date)
+    if key in _cache:
+        return _cache[key]
+    value = _fetch(currency)
+    _cache[key] = value
     return value
 
 
-def to_usd(
-    conn: sqlite3.Connection,
-    amount: float,
-    currency: str,
-    on_date: str | None = None,
-) -> float:
+def to_usd(amount: float, currency: str, on_date: str | None = None) -> float:
     on_date = on_date or _today()
-    src = byn_per_unit(conn, currency, on_date)
-    usd = byn_per_unit(conn, "USD", on_date)
+    src = byn_per_unit(currency, on_date)
+    usd = byn_per_unit("USD", on_date)
     return amount * src / usd
