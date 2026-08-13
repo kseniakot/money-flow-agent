@@ -27,16 +27,51 @@ CREATE TABLE IF NOT EXISTS products (
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    currency TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('spending', 'savings')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (user_id, currency, kind)
+);
+
+CREATE TABLE IF NOT EXISTS wallet_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    kind TEXT NOT NULL CHECK (kind IN ('deposit', 'correction')),
+    amount NUMERIC NOT NULL,
+    comment TEXT,
+    occurred_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    name TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    currency TEXT NOT NULL,
+    day_of_month INTEGER NOT NULL CHECK (day_of_month BETWEEN 1 AND 31),
+    comment TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    last_charged_ym TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
     product_id INTEGER NOT NULL REFERENCES products(id),
+    wallet_id INTEGER REFERENCES wallets(id),
+    subscription_id INTEGER REFERENCES subscriptions(id),
     qty NUMERIC NOT NULL DEFAULT 1,
     price NUMERIC,
     currency TEXT NOT NULL,
     purchased_at TEXT NOT NULL,
     place TEXT,
-    source TEXT NOT NULL CHECK (source IN ('text', 'voice', 'receipt')),
+    source TEXT NOT NULL CHECK (source IN ('text', 'voice', 'receipt', 'subscription')),
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 """
@@ -127,15 +162,19 @@ def add_expenses(
 ) -> dict:
     ids: list[int] = []
     for it in items:
+        wallet = get_or_create_wallet(conn, user_id, it["currency"], "spending")
         cur = conn.execute(
             """
             INSERT INTO expenses
-                (user_id, product_id, qty, price, currency, purchased_at, place, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (user_id, product_id, wallet_id, subscription_id, qty, price,
+                 currency, purchased_at, place, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
                 it["product_id"],
+                wallet["id"],
+                it.get("subscription_id"),
                 it.get("qty", 1),
                 it.get("price"),
                 it["currency"],
@@ -168,3 +207,155 @@ def query_expenses(
         (user_id, start, end),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_or_create_wallet(
+    conn: sqlite3.Connection, user_id: int, currency: str, kind: str = "spending"
+) -> dict:
+    conn.execute(
+        """
+        INSERT INTO wallets (user_id, currency, kind) VALUES (?, ?, ?)
+        ON CONFLICT(user_id, currency, kind) DO NOTHING
+        """,
+        (user_id, currency, kind),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM wallets WHERE user_id = ? AND currency = ? AND kind = ?",
+        (user_id, currency, kind),
+    ).fetchone()
+    return _row(row)
+
+
+def wallet_balance(conn: sqlite3.Connection, wallet_id: int) -> float:
+    row = conn.execute(
+        """
+        SELECT
+            COALESCE((SELECT SUM(amount) FROM wallet_movements WHERE wallet_id = ?), 0)
+          - COALESCE((SELECT SUM(price) FROM expenses WHERE wallet_id = ?), 0)
+          AS balance
+        """,
+        (wallet_id, wallet_id),
+    ).fetchone()
+    return float(row["balance"])
+
+
+def list_wallets(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM wallets WHERE user_id = ? ORDER BY kind, currency",
+        (user_id,),
+    ).fetchall()
+    result = []
+    for r in rows:
+        w = dict(r)
+        w["balance"] = wallet_balance(conn, w["id"])
+        result.append(w)
+    return result
+
+
+def add_movement(
+    conn: sqlite3.Connection,
+    wallet_id: int,
+    kind: str,
+    amount: float,
+    comment: str | None = None,
+    occurred_at: str | None = None,
+) -> dict:
+    cur = conn.execute(
+        """
+        INSERT INTO wallet_movements (wallet_id, kind, amount, comment, occurred_at)
+        VALUES (?, ?, ?, ?, COALESCE(?, datetime('now', 'localtime')))
+        """,
+        (wallet_id, kind, amount, comment, occurred_at),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM wallet_movements WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return _row(row)
+
+
+def create_subscription(
+    conn: sqlite3.Connection,
+    user_id: int,
+    name: str,
+    amount: float,
+    currency: str,
+    day_of_month: int,
+    comment: str | None = None,
+) -> dict:
+    wallet = get_or_create_wallet(conn, user_id, currency, "spending")
+    cur = conn.execute(
+        """
+        INSERT INTO subscriptions
+            (user_id, wallet_id, name, amount, currency, day_of_month, comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (user_id, wallet["id"], name, amount, currency, day_of_month, comment),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM subscriptions WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return _row(row)
+
+
+def list_subscriptions(
+    conn: sqlite3.Connection, user_id: int, active_only: bool = True
+) -> list[dict]:
+    q = "SELECT * FROM subscriptions WHERE user_id = ?"
+    if active_only:
+        q += " AND active = 1"
+    q += " ORDER BY day_of_month"
+    rows = conn.execute(q, (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def deactivate_subscription(conn: sqlite3.Connection, subscription_id: int) -> None:
+    conn.execute(
+        "UPDATE subscriptions SET active = 0 WHERE id = ?", (subscription_id,)
+    )
+    conn.commit()
+
+
+def due_subscriptions(conn: sqlite3.Connection, ym: str, day: int) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT * FROM subscriptions
+        WHERE active = 1
+          AND day_of_month = ?
+          AND (last_charged_ym IS NULL OR last_charged_ym != ?)
+        """,
+        (day, ym),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def charge_subscription(
+    conn: sqlite3.Connection, subscription: dict, purchased_at: str
+) -> dict:
+    category = create_category(conn, "подписки")
+    product = upsert_product(conn, subscription["name"], category["id"])
+    res = add_expenses(
+        conn,
+        user_id=subscription["user_id"],
+        items=[
+            {
+                "product_id": product["id"],
+                "subscription_id": subscription["id"],
+                "qty": 1,
+                "price": subscription["amount"],
+                "currency": subscription["currency"],
+                "purchased_at": purchased_at,
+                "place": None,
+                "source": "subscription",
+            }
+        ],
+    )
+    ym = purchased_at[:7]
+    conn.execute(
+        "UPDATE subscriptions SET last_charged_ym = ? WHERE id = ?",
+        (ym, subscription["id"]),
+    )
+    conn.commit()
+    return {"expense_id": res["ids"][0], "ym": ym}
