@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     currency TEXT NOT NULL,
     purchased_at TEXT NOT NULL,
     place TEXT,
-    source TEXT NOT NULL CHECK (source IN ('text', 'voice', 'receipt', 'subscription')),
+    source TEXT NOT NULL CHECK (source IN ('text', 'voice', 'receipt', 'subscription', 'bank')),
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 """
@@ -178,12 +178,7 @@ def add_expenses(
 
 
 def save_expenses(
-    conn: sqlite3.Connection,
-    user_id: int,
-    items: list[dict],
-    purchased_at: str,
-    source: str,
-    place: str | None = None,
+    conn: sqlite3.Connection, user_id: int, items: list[dict]
 ) -> dict:
     expense_items = []
     for it in items:
@@ -196,9 +191,9 @@ def save_expenses(
                 "unit_price": it.get("unit_price"),
                 "price": it.get("price"),
                 "currency": it["currency"],
-                "purchased_at": purchased_at,
-                "place": place,
-                "source": source,
+                "purchased_at": it["purchased_at"],
+                "place": it.get("place"),
+                "source": it["source"],
             }
         )
     return add_expenses(conn, user_id, expense_items)

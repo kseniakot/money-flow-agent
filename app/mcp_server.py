@@ -33,16 +33,10 @@ def categories_list() -> list[dict]:
 
 
 @mcp.tool()
-def save_expenses(
-    user_id: int,
-    items: list[dict],
-    purchased_at: str,
-    source: str,
-    place: str | None = None,
-) -> dict:
+def save_expenses(user_id: int, items: list[dict]) -> dict:
     conn = _conn()
     try:
-        return db.save_expenses(conn, user_id, items, purchased_at, source, place)
+        return db.save_expenses(conn, user_id, items)
     finally:
         conn.close()
 

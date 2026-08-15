@@ -4,6 +4,7 @@ TEXT_SYSTEM = """You are an expense parser. From the user's free-form text, extr
 
 Available categories: __CATEGORIES__
 Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
+Category granularity: medium. Group by product family (напитки, электроника, уход, бытовая химия, овощи, фрукты, мясо, бакалея, инструменты, хозтовары), not per single product and not one catch-all. Never put clearly unrelated products in the same category.
 
 Output ONLY JSON: {"items":[{"name","category","qty","unit_price","price","currency"}]}
 - name: short product name as written, normalized case.
@@ -31,6 +32,7 @@ RECEIPT_SYSTEM = """The image is a paper receipt. Extract its purchases and assi
 
 Available categories: __CATEGORIES__
 Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
+Category granularity: medium. Group by product family, not per single product and not one catch-all. Never put clearly unrelated products in the same category.
 
 Output ONLY JSON:
 {"place","purchased_at","currency","items":[{"name","category","qty","unit_price","price"}],"total","discount"}
@@ -57,6 +59,35 @@ Output ONLY JSON:
  "discount":1.20}"""
 
 
+BANK_SYSTEM = """The image is a bank app screenshot listing card charges: each row has an amount, a merchant, and a date-time. The user's caption lists, in the SAME ORDER, what each charge was for. Pair them by position: amount[i] belongs to product[i].
+
+Available categories: __CATEGORIES__
+Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
+Category granularity: medium. Group by product family, not per single product and not one catch-all. Never put clearly unrelated products in the same category.
+
+Today is __TODAY__.
+Output ONLY JSON: {"items":[{"name","category","qty","unit_price","price","currency","purchased_at","place"}]}
+- name: product from the caption at the same position (ignore any leading label like "ОЗОН:").
+- qty: 1 unless the caption says otherwise. unit_price: same as price. price: the charged amount from the screenshot row.
+- currency: from the screenshot amount.
+- purchased_at: "YYYY-MM-DD HH:MM:SS" from the row; if the year is missing use the year of the most recent such date on or before today.
+- place: the merchant string from the row.
+If the number of amounts and caption items differ, pair as many as you can in order.
+
+# Example
+Screenshot rows (top to bottom):
+  23.49 BYN | Retail BLR MINSKIY R-N OMBSHOP | 13 авг 20:37
+  9.85 BYN  | Retail BLR MINSKIY R-N OMBSHOP | 13 авг 20:37
+  8.87 BYN  | Retail BLR MINSK OZON | 13 авг 20:37
+  5.22 BYN  | Retail BLR MINSK OZON | 13 авг 20:36
+Caption: ОЗОН: чехол для наушников, отвертки, мусорные пакеты, тряпочка для ноутбука
+ASSISTANT: {"items":[
+ {"name":"чехол для наушников","category":"аксессуары","qty":1,"unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
+ {"name":"отвертки","category":"инструменты","qty":1,"unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
+ {"name":"мусорные пакеты","category":"хозтовары","qty":1,"unit_price":8.87,"price":8.87,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSK OZON"},
+ {"name":"тряпочка для ноутбука","category":"хозтовары","qty":1,"unit_price":5.22,"price":5.22,"currency":"BYN","purchased_at":"2026-08-13 20:36:00","place":"Retail BLR MINSK OZON"}]}"""
+
+
 def text_system(categories: list[str], default_currency: str) -> str:
     cats = ", ".join(categories) if categories else "(none yet)"
     return TEXT_SYSTEM.replace("__CATEGORIES__", cats).replace(
@@ -67,3 +98,8 @@ def text_system(categories: list[str], default_currency: str) -> str:
 def receipt_system(categories: list[str]) -> str:
     cats = ", ".join(categories) if categories else "(none yet)"
     return RECEIPT_SYSTEM.replace("__CATEGORIES__", cats)
+
+
+def bank_system(categories: list[str], today: str) -> str:
+    cats = ", ".join(categories) if categories else "(none yet)"
+    return BANK_SYSTEM.replace("__CATEGORIES__", cats).replace("__TODAY__", today)
