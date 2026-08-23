@@ -281,9 +281,9 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
         await _present(chat_id, context, result)
         replace_id = context.chat_data.pop("replace_id", None)
-        if replace_id is not None and result.get("status") == "saved":
+        if replace_id is not None and result.get("status") in ("saved", "cancelled"):
             await asyncio.to_thread(_delete_expense, replace_id)
-            log.info("edit: replaced expense %s", replace_id)
+            log.info("edit: removed original expense %s", replace_id)
     finally:
         context.chat_data["busy"] = False
 
