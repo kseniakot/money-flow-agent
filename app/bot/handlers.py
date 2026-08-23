@@ -143,15 +143,30 @@ async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> N
     await _send_kb(chat_id, context, "Сначала реши, что делать с текущим расходом:")
 
 
+async def _send_processing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> int:
+    msg = await context.bot.send_message(chat_id, "⏳ Обрабатываю…")
+    return msg.message_id
+
+
+async def _delete_msg(chat_id: int, context: ContextTypes.DEFAULT_TYPE, message_id: int) -> None:
+    try:
+        await context.bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
 async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
     context.chat_data.pop("replace_id", None)
+    chat_id = update.effective_chat.id
     graph = context.application.bot_data["graph"]
     mcp = context.application.bot_data["mcp"]
     user = await asyncio.to_thread(_register, update)
     cats = await mcp.categories()
     state = _initial(user, source, text, image, cats)
-    result = await graph.ainvoke(state, _cfg(update.effective_chat.id))
-    await _present(update.effective_chat.id, context, result)
+    pid = await _send_processing(chat_id, context)
+    result = await graph.ainvoke(state, _cfg(chat_id))
+    await _delete_msg(chat_id, context, pid)
+    await _present(chat_id, context, result)
 
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -174,11 +189,14 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _apply_correction(update, context, graph, cfg, text: str) -> None:
-    await _clear_kb(update.effective_chat.id, context)
+    chat_id = update.effective_chat.id
+    await _clear_kb(chat_id, context)
+    pid = await _send_processing(chat_id, context)
     result = await graph.ainvoke(
         Command(resume={"action": "revise", "correction": text}), cfg
     )
-    await _present(update.effective_chat.id, context, result)
+    await _delete_msg(chat_id, context, pid)
+    await _present(chat_id, context, result)
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
