@@ -4,6 +4,7 @@ import calendar
 import csv
 import io
 import logging
+import shlex
 import tempfile
 from contextlib import AsyncExitStack
 from datetime import datetime
@@ -508,7 +509,10 @@ async def correct_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await asyncio.to_thread(_register, update)
-    args = context.args
+    try:
+        args = shlex.split(update.message.text or "")[1:]
+    except ValueError:
+        args = context.args
 
     if not args:
         def show():
@@ -521,7 +525,8 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         subs = await asyncio.to_thread(show)
         if not subs:
             await update.message.reply_text(
-                "Подписок нет. Добавить: /subs add Netflix 12.99 USD 15 [коммент]"
+                'Подписок нет. Добавить: /subs add "Claude Code" 50 USD 23 [коммент]\n'
+                "(имя в кавычках, если в нём есть пробел)"
             )
             return
         lines = ["🔁 Подписки:"]
@@ -559,7 +564,7 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             day = int(args[4])
         except ValueError:
             await update.message.reply_text(
-                "Формат: /subs add <name> <amount> <currency> <day> [коммент]"
+                'Формат: /subs add "<name>" <amount> <currency> <day> [коммент]'
             )
             return
         name = args[1]
@@ -580,7 +585,7 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(
-        "Формат: /subs | /subs add <name> <amount> <currency> <day> [коммент] | /subs del <id>"
+        'Формат: /subs | /subs add "<name>" <amount> <currency> <day> [коммент] | /subs del <id>'
     )
 
 
