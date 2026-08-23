@@ -650,25 +650,12 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not rows:
         await update.message.reply_text("Расходов пока нет.")
         return
-    src = {"text": "текст", "voice": "голос", "receipt": "чек", "bank": "выписка", "subscription": "подписка"}
-    lines = ["🧾 Последние покупки:", ""]
-    for r in rows:
-        qty = f"{r['qty']:g} {r['unit']}"
-        if r.get("unit_price") is not None:
-            qty += f" × {r['unit_price']:.2f}"
-        parts = [
-            r["category_name"],
-            qty,
-            f"{r['price']:.2f} {r['currency']}",
-            r["purchased_at"][:16],
-        ]
-        if r.get("place"):
-            parts.append(r["place"])
-        parts.append(src.get(r["source"], r["source"]))
-        lines.append(f"#{r['id']} {r['product_name']}")
-        lines.append("   " + " · ".join(parts))
-    lines.append("\nПоправить: /edit <id> · Удалить: /del <id>")
-    await update.message.reply_text("\n".join(lines))
+    png = await asyncio.to_thread(reports.build_history_table, rows)
+    await context.bot.send_photo(
+        update.effective_chat.id,
+        png,
+        caption="🧾 Последние покупки\nПоправить: /edit <id> · Удалить: /del <id>",
+    )
 
 
 async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
