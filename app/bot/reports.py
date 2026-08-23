@@ -54,16 +54,24 @@ def build_report_text(rows: list[dict], start: str, end: str) -> str:
 
 def build_chart(rows: list[dict]) -> bytes:
     cats = _by_category(rows)
-    labels, sizes = [], []
-    for name, c in cats.items():
-        usd = sum(rates.to_usd(v, cur) for cur, v in c["totals"].items())
-        labels.append(name)
-        sizes.append(usd)
+    data = [
+        (name, sum(rates.to_usd(v, cur) for cur, v in c["totals"].items()))
+        for name, c in cats.items()
+    ]
+    data.sort(key=lambda x: x[1])
+    labels = [d[0] for d in data]
+    values = [d[1] for d in data]
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie(sizes, labels=labels, autopct="%1.0f%%", startangle=90)
+    fig, ax = plt.subplots(figsize=(7, max(3, 0.5 * len(labels) + 1)))
+    bars = ax.barh(labels, values, color="#0f7d6b")
+    ax.set_xlabel("USD")
     ax.set_title("Расходы по категориям (USD)")
+    ax.spines[["top", "right"]].set_visible(False)
+    for bar, v in zip(bars, values):
+        ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f" {v:.0f}", va="center")
+    fig.tight_layout()
+
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", dpi=120)
+    fig.savefig(buf, format="png", dpi=120)
     plt.close(fig)
     return buf.getvalue()
