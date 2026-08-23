@@ -43,11 +43,12 @@ KB = InlineKeyboardMarkup(
     [
         [
             InlineKeyboardButton("✅ записать", callback_data="approve"),
-            InlineKeyboardButton("✏️ править", callback_data="edit"),
-            InlineKeyboardButton("❌ отмена", callback_data="cancel"),
+            InlineKeyboardButton("🗑 удалить", callback_data="cancel"),
         ]
     ]
 )
+
+REVIEW_HINT = "✏️ Правка — просто пришли следующим сообщением (текст/голос), если не жмёшь «записать»/«удалить»."
 
 COMMANDS = [
     BotCommand("start", "как пользоваться ботом"),
@@ -128,14 +129,14 @@ async def _present(chat_id: int, context: ContextTypes.DEFAULT_TYPE, result: dic
     if "__interrupt__" in result:
         payload = result["__interrupt__"][0].value
         text = build_preview(payload["items"], payload.get("meta", {}))
-        await _send_kb(chat_id, context, text)
+        await _send_kb(chat_id, context, text + "\n\n" + REVIEW_HINT)
     elif result.get("status") == "saved":
         await _clear_kb(chat_id, context)
         n = result["result"]["inserted"]
         await context.bot.send_message(chat_id, f"✅ Записал {n} поз.")
     elif result.get("status") == "cancelled":
         await _clear_kb(chat_id, context)
-        await context.bot.send_message(chat_id, "Отменено.")
+        await context.bot.send_message(chat_id, "🗑 Удалено.")
 
 
 async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -143,7 +144,6 @@ async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
-    context.chat_data.pop("editing", None)
     context.chat_data.pop("replace_id", None)
     graph = context.application.bot_data["graph"]
     mcp = context.application.bot_data["mcp"]
@@ -173,14 +173,11 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def _correct_or_remind(update, context, graph, cfg, text: str) -> None:
-    if context.chat_data.get("editing"):
-        result = await graph.ainvoke(
-            Command(resume={"action": "revise", "correction": text}), cfg
-        )
-        await _present(update.effective_chat.id, context, result)
-    else:
-        await _remind_pending(update.effective_chat.id, context)
+async def _apply_correction(update, context, graph, cfg, text: str) -> None:
+    result = await graph.ainvoke(
+        Command(resume={"action": "revise", "correction": text}), cfg
+    )
+    await _present(update.effective_chat.id, context, result)
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -194,7 +191,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text = update.message.text
         log.info("text from chat %s: %r", update.effective_chat.id, text)
         if await _pending(graph, cfg):
-            await _correct_or_remind(update, context, graph, cfg, text)
+            await _apply_correction(update, context, graph, cfg, text)
         else:
             await _new_expense(update, context, "text", text, None)
     finally:
@@ -217,7 +214,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         cfg = _cfg(update.effective_chat.id)
         await update.message.reply_text(f"🎤 {text}")
         if await _pending(graph, cfg):
-            await _correct_or_remind(update, context, graph, cfg, text)
+            await _apply_correction(update, context, graph, cfg, text)
         else:
             await _new_expense(update, context, "voice", text, None)
     finally:
@@ -279,12 +276,6 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id, "Эта проверка уже завершена.")
         return
 
-    if q.data == "edit":
-        context.chat_data["editing"] = True
-        await context.bot.send_message(chat_id, "✏️ Пришли правку — текстом или голосом.")
-        return
-
-    context.chat_data.pop("editing", None)
     context.chat_data["busy"] = True
     try:
         result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
@@ -295,7 +286,6 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             log.info("edit: replaced expense %s", replace_id)
     finally:
         context.chat_data["busy"] = False
-        log.info("edit: replaced expense %s", replace_id)
 
 
 def _charge_due(now: datetime, db_path: str | None = None, only_sub_id: int | None = None) -> list[dict]:
@@ -750,7 +740,7 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "items": [item],
     }
     log.info("edit: open expense %s for chat %s", eid, chat_id)
-    await update.message.reply_text(f"✏️ Правка #{eid}. Нажми ✏️ и пришли изменения.")
+    await update.message.reply_text(f"✏️ Правка #{eid}. Пришли изменения следующим сообщением.")
     context.chat_data["busy"] = True
     try:
         result = await graph.ainvoke(state, cfg)
