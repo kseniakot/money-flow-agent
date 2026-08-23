@@ -30,6 +30,8 @@ class State(TypedDict, total=False):
 def build_graph(mcp):
     async def parse_node(state: State):
         log.info("node parse: source=%s", state["source"])
+        if state["source"] == "edit":
+            return {"items": state["items"], "meta": {}}
         r = await asyncio.to_thread(
             extract.parse,
             state["source"],

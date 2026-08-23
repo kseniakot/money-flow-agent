@@ -89,6 +89,27 @@ def test_revise_then_approve(monkeypatch):
     assert [i["name"] for i in mcp.saved] == ["молоко", "хлеб"]
 
 
+def test_edit_passthrough_skips_model(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("parse must be skipped for edit")
+
+    monkeypatch.setattr(extract, "parse", boom)
+    mcp = FakeMCP()
+    graph = agent.build_agent(mcp)
+    cfg = {"configurable": {"thread_id": "edit1"}}
+    state = {**initial(), "source": "edit", "items": [base_item("молоко", 1.92)]}
+
+    async def run():
+        out = await graph.ainvoke(state, cfg)
+        assert "__interrupt__" in out
+        assert out["__interrupt__"][0].value["items"][0]["name"] == "молоко"
+        out2 = await graph.ainvoke(Command(resume={"action": "approve"}), cfg)
+        assert out2["status"] == "saved"
+
+    asyncio.run(run())
+    assert mcp.saved[0]["name"] == "молоко"
+
+
 def test_cancel_does_not_persist(monkeypatch):
     patch(monkeypatch)
     mcp = FakeMCP()

@@ -57,6 +57,9 @@ COMMANDS = [
     BotCommand("subs", "подписки: /subs, add, del"),
     BotCommand("categories", "список категорий"),
     BotCommand("currency", "валюта по умолчанию: /currency USD"),
+    BotCommand("history", "последние покупки с id"),
+    BotCommand("edit", "поправить покупку: /edit <id>"),
+    BotCommand("del", "удалить покупку: /del <id>"),
     BotCommand("undo", "удалить последний расход"),
     BotCommand("export", "выгрузить расходы в CSV"),
 ]
@@ -123,6 +126,7 @@ async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
     context.chat_data.pop("editing", None)
+    context.chat_data.pop("replace_id", None)
     graph = context.application.bot_data["graph"]
     mcp = context.application.bot_data["mcp"]
     user = await asyncio.to_thread(_register, update)
@@ -238,6 +242,10 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.chat_data.pop("editing", None)
     result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
     await _present(chat_id, context, result)
+    replace_id = context.chat_data.pop("replace_id", None)
+    if replace_id is not None and result.get("status") == "saved":
+        await asyncio.to_thread(_delete_expense, replace_id)
+        log.info("edit: replaced expense %s", replace_id)
 
 
 def _charge_due(now: datetime, db_path: str | None = None) -> list[dict]:
@@ -548,6 +556,126 @@ async def undo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+    limit = 10
+    if context.args:
+        try:
+            limit = min(int(context.args[0]), 50)
+        except ValueError:
+            pass
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            return db.recent_expenses(conn, user["id"], limit)
+        finally:
+            conn.close()
+
+    rows = await asyncio.to_thread(work)
+    if not rows:
+        await update.message.reply_text("Расходов пока нет.")
+        return
+    lines = ["🧾 Последние покупки:"]
+    for r in rows:
+        place = f" · {r['place']}" if r.get("place") else ""
+        lines.append(
+            f"#{r['id']} {r['product_name']} — {r['price']:.2f} {r['currency']}"
+            f" · {r['purchased_at'][:16]}{place}"
+        )
+    lines.append("\nПоправить: /edit <id> · Удалить: /del <id>")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await update.message.reply_text("Формат: /del <id> (id смотри в /history)")
+        return
+    try:
+        eid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("id числом: /del 42")
+        return
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            row = db.get_expense(conn, eid, user["id"])
+            if row:
+                db.delete_expense(conn, eid)
+            return row
+        finally:
+            conn.close()
+
+    row = await asyncio.to_thread(work)
+    if not row:
+        await update.message.reply_text(f"Покупка #{eid} не найдена.")
+        return
+    await update.message.reply_text(
+        f"🗑 Удалил #{eid}: {row['product_name']} — {row['price']:.2f} {row['currency']}"
+    )
+
+
+async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await update.message.reply_text("Формат: /edit <id> (id смотри в /history)")
+        return
+    try:
+        eid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("id числом: /edit 42")
+        return
+    chat_id = update.effective_chat.id
+    graph = context.application.bot_data["graph"]
+    cfg = _cfg(chat_id)
+    if await _pending(graph, cfg):
+        await _remind_pending(chat_id, context)
+        return
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            return db.get_expense(conn, eid, user["id"])
+        finally:
+            conn.close()
+
+    row = await asyncio.to_thread(work)
+    if not row:
+        await update.message.reply_text(f"Покупка #{eid} не найдена.")
+        return
+
+    item = {
+        "name": row["product_name"],
+        "category": row["category_name"],
+        "qty": row["qty"],
+        "unit_price": row["unit_price"],
+        "price": row["price"],
+        "currency": row["currency"],
+        "purchased_at": row["purchased_at"],
+        "place": row["place"],
+        "source": row["source"],
+    }
+    context.chat_data["replace_id"] = eid
+    cats = await context.application.bot_data["mcp"].categories()
+    state = {
+        "user_id": user["id"],
+        "source": "edit",
+        "text": "",
+        "image": None,
+        "categories": cats,
+        "default_currency": user["default_currency"],
+        "now": _now(),
+        "today": _today(),
+        "items": [item],
+    }
+    log.info("edit: open expense %s for chat %s", eid, chat_id)
+    await update.message.reply_text(f"✏️ Правка #{eid}. Нажми ✏️ и пришли изменения.")
+    result = await graph.ainvoke(state, cfg)
+    await _present(chat_id, context, result)
+
+
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await asyncio.to_thread(_register, update)
 
@@ -635,6 +763,9 @@ def main() -> None:
     app.add_handler(CommandHandler("subs", subs_cmd))
     app.add_handler(CommandHandler("categories", categories_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))
+    app.add_handler(CommandHandler("history", history_cmd))
+    app.add_handler(CommandHandler("edit", edit_cmd))
+    app.add_handler(CommandHandler("del", del_cmd))
     app.add_handler(CommandHandler("undo", undo_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CallbackQueryHandler(on_button))

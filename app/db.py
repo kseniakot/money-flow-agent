@@ -134,6 +134,40 @@ def delete_expense(conn: sqlite3.Connection, expense_id: int) -> None:
     conn.commit()
 
 
+def get_expense(conn: sqlite3.Connection, expense_id: int, user_id: int) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT e.id, e.qty, e.unit_price, e.price, e.currency, e.purchased_at,
+               e.place, e.source,
+               p.name AS product_name, c.name AS category_name
+        FROM expenses e
+        JOIN products p ON p.id = e.product_id
+        JOIN categories c ON c.id = p.category_id
+        WHERE e.id = ? AND e.user_id = ?
+        """,
+        (expense_id, user_id),
+    ).fetchone()
+    return _row(row)
+
+
+def recent_expenses(
+    conn: sqlite3.Connection, user_id: int, limit: int = 10
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT e.id, e.qty, e.price, e.currency, e.purchased_at, e.place,
+               p.name AS product_name, c.name AS category_name
+        FROM expenses e
+        JOIN products p ON p.id = e.product_id
+        JOIN categories c ON c.id = p.category_id
+        WHERE e.user_id = ?
+        ORDER BY e.id DESC LIMIT ?
+        """,
+        (user_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def last_expense(conn: sqlite3.Connection, user_id: int) -> dict | None:
     row = conn.execute(
         """

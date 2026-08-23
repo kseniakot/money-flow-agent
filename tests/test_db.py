@@ -65,6 +65,35 @@ def test_insert_and_read_expense():
     assert r["currency"] == "BYN"
 
 
+def test_get_and_recent_expenses():
+    conn = make_conn()
+    user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
+    db.save_expenses(
+        conn,
+        user["id"],
+        [
+            {
+                "name": "молоко",
+                "category": "молочка",
+                "qty": 1,
+                "unit_price": 1.9,
+                "price": 1.9,
+                "currency": "BYN",
+                "purchased_at": "2026-08-13 10:00:00",
+                "place": None,
+                "source": "text",
+            }
+        ],
+    )
+    recent = db.recent_expenses(conn, user["id"])
+    assert len(recent) == 1
+    eid = recent[0]["id"]
+    got = db.get_expense(conn, eid, user["id"])
+    assert got["product_name"] == "молоко"
+    assert got["category_name"] == "молочка"
+    assert db.get_expense(conn, eid, 999) is None
+
+
 def test_create_category_idempotent():
     conn = make_conn()
     a = db.create_category(conn, "бакалея")
