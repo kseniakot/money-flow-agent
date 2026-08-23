@@ -17,6 +17,21 @@ def test_upsert_user_creates_and_updates():
     assert u2["tg_username"] == "quantik_new"
 
 
+def test_new_user_gets_given_default_currency():
+    conn = make_conn()
+    u = db.upsert_user(conn, tg_user_id=9, tg_username="me", default_currency="USD")
+    assert u["default_currency"] == "USD"
+
+
+def test_set_default_currency_and_keep_on_reregister():
+    conn = make_conn()
+    u = db.upsert_user(conn, tg_user_id=9, tg_username="me", default_currency="BYN")
+    db.set_default_currency(conn, u["id"], "EUR")
+    u2 = db.upsert_user(conn, tg_user_id=9, tg_username="me2", default_currency="BYN")
+    assert u2["default_currency"] == "EUR"
+    assert u2["tg_username"] == "me2"
+
+
 def test_insert_and_read_expense():
     conn = make_conn()
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")

@@ -120,6 +120,15 @@ def get_user(conn: sqlite3.Connection, user_id: int) -> dict | None:
     return _row(row)
 
 
+def set_default_currency(
+    conn: sqlite3.Connection, user_id: int, currency: str
+) -> None:
+    conn.execute(
+        "UPDATE users SET default_currency = ? WHERE id = ?", (currency, user_id)
+    )
+    conn.commit()
+
+
 def delete_expense(conn: sqlite3.Connection, expense_id: int) -> None:
     conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
     conn.commit()

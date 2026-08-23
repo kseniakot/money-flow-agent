@@ -58,7 +58,7 @@ def _register(update: Update) -> dict:
     conn = db.get_conn(config.db_path)
     try:
         u = update.effective_user
-        return db.upsert_user(conn, u.id, u.username)
+        return db.upsert_user(conn, u.id, u.username, config.default_currency)
     finally:
         conn.close()
 
@@ -241,6 +241,26 @@ async def categories_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     cats = await context.application.bot_data["mcp"].categories()
     body = "\n".join(f"• {c}" for c in cats) if cats else "пока нет"
     await update.message.reply_text("Категории:\n" + body)
+
+
+async def currency_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+    if not context.args:
+        await update.message.reply_text(
+            f"Валюта по умолчанию: {user['default_currency']}\nСменить: /currency USD"
+        )
+        return
+    currency = context.args[0].upper()
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            db.set_default_currency(conn, user["id"], currency)
+        finally:
+            conn.close()
+
+    await asyncio.to_thread(work)
+    await update.message.reply_text(f"✅ Валюта по умолчанию теперь {currency}.")
 
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -564,6 +584,7 @@ def main() -> None:
     app.add_handler(CommandHandler("correct", correct_cmd))
     app.add_handler(CommandHandler("subs", subs_cmd))
     app.add_handler(CommandHandler("categories", categories_cmd))
+    app.add_handler(CommandHandler("currency", currency_cmd))
     app.add_handler(CommandHandler("undo", undo_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
