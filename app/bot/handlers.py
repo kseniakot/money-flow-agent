@@ -93,6 +93,14 @@ async def _present(chat_id: int, context: ContextTypes.DEFAULT_TYPE, result: dic
         await context.bot.send_message(chat_id, "Отменено.")
 
 
+async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await context.bot.send_message(
+        chat_id,
+        "Сначала реши, что делать с текущим расходом:",
+        reply_markup=KB,
+    )
+
+
 async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
     context.chat_data.pop("editing", None)
     graph = context.application.bot_data["graph"]
@@ -124,9 +132,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             await _present(update.effective_chat.id, context, result)
         else:
-            await update.message.reply_text(
-                "Идёт проверка. Нажми ✏️ править, чтобы поправить, либо ✅/❌."
-            )
+            await _remind_pending(update.effective_chat.id, context)
     else:
         await _new_expense(update, context, "text", text, None)
 
@@ -148,9 +154,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             await _present(update.effective_chat.id, context, result)
         else:
-            await update.message.reply_text(
-                "Идёт проверка. Нажми ✏️ править, чтобы поправить голосом, либо ✅/❌."
-            )
+            await _remind_pending(update.effective_chat.id, context)
     else:
         await _new_expense(update, context, "voice", text, None)
 
@@ -159,9 +163,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     graph = context.application.bot_data["graph"]
     cfg = _cfg(update.effective_chat.id)
     if await _pending(graph, cfg):
-        await update.message.reply_text(
-            "Заверши текущий расход (✅/❌) или поправь текстом — фото-правка пока не поддержана."
-        )
+        await _remind_pending(update.effective_chat.id, context)
         return
     tg_file = await update.message.photo[-1].get_file()
     raw = await tg_file.download_as_bytearray()
