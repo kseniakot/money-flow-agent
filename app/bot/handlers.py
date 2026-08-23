@@ -11,7 +11,13 @@ from datetime import time as dtime
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+    Update,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -40,6 +46,20 @@ KB = InlineKeyboardMarkup(
         ]
     ]
 )
+
+COMMANDS = [
+    BotCommand("start", "как пользоваться ботом"),
+    BotCommand("report", "отчёт за период: /report 2026-08-01 2026-08-31"),
+    BotCommand("wallets", "балансы кошельков и итог в USD"),
+    BotCommand("deposit", "пополнить кошелёк: /deposit 100 USD"),
+    BotCommand("savings", "копилка: /savings 100 USD (без аргументов — показать)"),
+    BotCommand("correct", "выставить баланс: /correct USD 90 [savings]"),
+    BotCommand("subs", "подписки: /subs, add, del"),
+    BotCommand("categories", "список категорий"),
+    BotCommand("currency", "валюта по умолчанию: /currency USD"),
+    BotCommand("undo", "удалить последний расход"),
+    BotCommand("export", "выгрузить расходы в CSV"),
+]
 
 
 def _now() -> str:
@@ -116,7 +136,18 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await asyncio.to_thread(_register, update)
     await update.message.reply_text(
         "Привет! Кидай расходы текстом, голосом или фото чека/выписки.\n"
-        "Я распарсю, покажу на проверку, и запишу после твоего ✅."
+        "Я распарсю, покажу на проверку, и запишу после твоего ✅.\n\n"
+        "Команды (меню слева от поля ввода):\n"
+        "/report — отчёт за период\n"
+        "/wallets — балансы кошельков\n"
+        "/deposit — пополнить кошелёк\n"
+        "/savings — копилка\n"
+        "/correct — поправить баланс\n"
+        "/subs — подписки\n"
+        "/categories — категории\n"
+        "/currency — валюта по умолчанию\n"
+        "/undo — удалить последний расход\n"
+        "/export — выгрузить CSV"
     )
 
 
@@ -561,6 +592,7 @@ async def _post_init(app: Application) -> None:
     app.bot_data["mcp"] = mcp
     app.bot_data["stack"] = stack
     app.bot_data["graph"] = build_agent(mcp, saver)
+    await app.bot.set_my_commands(COMMANDS)
     app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
 
 
