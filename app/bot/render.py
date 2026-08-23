@@ -40,8 +40,13 @@ def build_preview(items: list[dict], meta: dict) -> str:
     lines.append("")
     for i, it in enumerate(items, 1):
         line = f"{i}. {it['name']} — {_money(it.get('price'))} {it['currency']}"
-        if it.get("qty", 1) != 1:
-            line += f" ({_num(it['qty'])} × {_money(it.get('unit_price'))})"
+        qty = it.get("qty", 1)
+        unit = it.get("unit") or "шт"
+        if qty != 1 or unit != "шт":
+            chunk = f"{_num(qty)} {unit}"
+            if qty != 1 and it.get("unit_price") is not None:
+                chunk += f" × {_money(it['unit_price'])}"
+            line += f" · {chunk}"
         line += f" — {it['category']}"
         if source == "bank":
             line += f"\n   · {it.get('purchased_at', '')} · {it.get('place', '')}"

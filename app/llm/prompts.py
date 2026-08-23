@@ -4,10 +4,11 @@ Available categories: __CATEGORIES__
 Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
 Category granularity: medium. Group by product family (Examples: напитки, техника, уход за волосами, уход за лицом, бытовая химия, товары для дома, овощи, фрукты, ягоды, мясо, колбасные изделия, одежда, крупы, молочные продукты, сладости), not per single product and not one catch-all. Never put clearly unrelated products in the same category.
 
-Output ONLY JSON: {"place", "items":[{"name","category","qty","unit_price","price","currency"}]}
+Output ONLY JSON: {"place", "items":[{"name","category","qty","unit","unit_price","price","currency"}]}
 - place: the shop or website if the text names where it was bought ("на wildberries"/"вайлдберриз" -> "Wildberries", "в евроопте" -> "Евроопт", "озон" -> "Ozon", "магнит" -> "Магнит", "в санте" -> "Санта"); otherwise null. One place for the whole message.
 - name: short product name as written, normalized case.
-- qty: quantity. "N штук/шт" -> N. Weight "(X за кг)" or "X/кг" -> qty is the weight in kg. Default 1.
+- qty: quantity. "N штук/шт" -> N. Weight "(X за кг)"/"X/кг"/"N кг" -> qty is the weight in kg. Default 1.
+- unit: unit of measure — "шт" (default), "кг" for weight, "уп" for пачка/упаковка, "л"/"мл" for liquids, "г" for grams.
 - unit_price: price per one unit or per kg.
 - price: line total for the whole position (qty * unit_price).
 - currency: currency code; default "__CURRENCY__". The words "рубль/рубля/рублей/руб/копеек/коп" mean the DEFAULT currency "__CURRENCY__", NOT a foreign one. Switch currency only on an explicit foreign mention: "долларов"/"usd" -> USD, "евро"/"eur" -> EUR, "злотых"/"pln" -> PLN, "российских рублей"/"рос руб" -> RUB.
@@ -26,24 +27,24 @@ Separators: commas, semicolons, newlines. Decimal separator is a dot.
 # Example (no place named; available categories: молочная продукция, ягоды, фрукты, яйца)
 USER: молоко 1.92, йогурты теос 3 штуки 2.14 за один, творог 3 - 1.92, бананы 4.32 (2.01 за кг), яйца 3.90
 ASSISTANT: {"place":null,"items":[
-{"name":"молоко","category":"молочная продукция","qty":1,"unit_price":1.92,"price":1.92,"currency":"BYN"},
-{"name":"йогурты теос","category":"молочная продукция","qty":3,"unit_price":2.14,"price":6.42,"currency":"BYN"},
-{"name":"творог","category":"молочная продукция","qty":3,"unit_price":1.92,"price":5.76,"currency":"BYN"},
-{"name":"бананы","category":"фрукты","qty":2.15,"unit_price":2.01,"price":4.32,"currency":"BYN"},
-{"name":"яйца","category":"яйца","qty":1,"unit_price":3.90,"price":3.90,"currency":"BYN"}]}
+{"name":"молоко","category":"молочная продукция","qty":1,"unit":"шт","unit_price":1.92,"price":1.92,"currency":"BYN"},
+{"name":"йогурты теос","category":"молочная продукция","qty":3,"unit":"шт","unit_price":2.14,"price":6.42,"currency":"BYN"},
+{"name":"творог","category":"молочная продукция","qty":3,"unit":"шт","unit_price":1.92,"price":5.76,"currency":"BYN"},
+{"name":"бананы","category":"фрукты","qty":2.15,"unit":"кг","unit_price":2.01,"price":4.32,"currency":"BYN"},
+{"name":"яйца","category":"яйца","qty":1,"unit":"шт","unit_price":3.90,"price":3.90,"currency":"BYN"}]}
 
-# Example with a place (default currency BYN; available categories: техника, дом)
-USER: купила на вайлдберриз наушники 30 и коврик для мыши 8
+# Example with place and units (default currency BYN; available categories: техника, орехи, товары для дома)
+USER: купила на вайлдберриз арахисовую пасту 1 кг 18.93 и фильтры для кувшина 1 упаковка 2 штуки 25.10
 ASSISTANT: {"place":"Wildberries","items":[
-{"name":"наушники","category":"техника","qty":1,"unit_price":30.00,"price":30.00,"currency":"BYN"},
-{"name":"коврик для мыши","category":"техника","qty":1,"unit_price":8.00,"price":8.00,"currency":"BYN"}]}
+{"name":"арахисовая паста","category":"орехи","qty":1,"unit":"кг","unit_price":18.93,"price":18.93,"currency":"BYN"},
+{"name":"фильтры для кувшина","category":"товары для дома","qty":1,"unit":"уп","unit_price":25.10,"price":25.10,"currency":"BYN"}]}
 
 # Example spoken prices (default currency BYN; available categories: молочная продукция, выпечка)
 USER: творог рубль 90, йогурт 2 рубля 25 копеек, хлеб 3 рубля
 ASSISTANT: {"place":null,"items":[
-{"name":"творог","category":"молочная продукция","qty":1,"unit_price":1.90,"price":1.90,"currency":"BYN"},
-{"name":"йогурт","category":"молочная продукция","qty":1,"unit_price":2.25,"price":2.25,"currency":"BYN"},
-{"name":"хлеб","category":"выпечка","qty":1,"unit_price":3.00,"price":3.00,"currency":"BYN"}]}"""
+{"name":"творог","category":"молочная продукция","qty":1,"unit":"шт","unit_price":1.90,"price":1.90,"currency":"BYN"},
+{"name":"йогурт","category":"молочная продукция","qty":1,"unit":"шт","unit_price":2.25,"price":2.25,"currency":"BYN"},
+{"name":"хлеб","category":"выпечка","qty":1,"unit":"шт","unit_price":3.00,"price":3.00,"currency":"BYN"}]}"""
 
 PHOTO_SYSTEM = """The image is EITHER a paper receipt OR a screenshot of a bank app listing card charges. Decide which, then extract the purchases and assign each item a category.
 
@@ -57,27 +58,27 @@ Paper receipt: one purchase with many lines. Read place, date-time and currency 
 
 Bank screenshot: a list of separate charges; each row has an amount, a merchant and a date-time. The user's caption lists, in the SAME ORDER, what each charge was for; pair by position (ignore any leading label like "ОЗОН:"). Each item takes its own amount (price), merchant (place) and date-time from its row. If a year is missing, use the year of the most recent such date on or before today. total = null, discount = 0.
 
-Common item rules: qty = 1 unless stated; unit_price = price / qty; purchased_at = "YYYY-MM-DD HH:MM:SS".
+Common item rules: qty = 1 unless stated; unit = "шт" (default), "кг" for weight, "уп" for packs, "л"/"мл" for liquids; unit_price = price / qty; purchased_at = "YYYY-MM-DD HH:MM:SS".
 
 Output ONLY JSON:
 {"kind":"receipt" or "bank",
- "items":[{"name","category","qty","unit_price","price","currency","purchased_at","place"}],
+ "items":[{"name","category","qty","unit","unit_price","price","currency","purchased_at","place"}],
  "total": number or null,
  "discount": number}
 
 # Example — paper receipt
 {"kind":"receipt",
  "items":[
-   {"name":"средство для туалета","category":"бытовая химия","qty":1,"unit_price":9.99,"price":9.99,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"},
-   {"name":"творог","category":"молочная продукция","qty":1,"unit_price":1.91,"price":1.91,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"}],
+   {"name":"средство для туалета","category":"бытовая химия","qty":1,"unit":"шт","unit_price":9.99,"price":9.99,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"},
+   {"name":"творог","category":"молочная продукция","qty":1,"unit":"шт","unit_price":1.91,"price":1.91,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"}],
  "total":11.90,
  "discount":1.20}
 
 # Example — bank screenshot; caption: ОЗОН: чехол для наушников, отвертки
 {"kind":"bank",
  "items":[
-   {"name":"чехол для наушников","category":"аксессуары","qty":1,"unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
-   {"name":"отвертки","category":"инструменты","qty":1,"unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"}],
+   {"name":"чехол для наушников","category":"аксессуары","qty":1,"unit":"шт","unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
+   {"name":"отвертки","category":"инструменты","qty":1,"unit":"шт","unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"}],
  "total":null,
  "discount":0}"""
 
@@ -85,7 +86,8 @@ REVISE_SYSTEM = """You are editing a list of already-parsed expense items accord
 
 Available categories: __CATEGORIES__
 Apply the correction to the current items and return the FULL updated list.
-Keep every field on each item: name, category, qty, unit_price, price, currency, purchased_at, place, source.
+Keep every field on each item: name, category, qty, unit, unit_price, price, currency, purchased_at, place, source.
+"unit" is the measure ("шт", "кг", "уп", "л"); set it from the correction (e.g. "количество 1 кг" -> qty 1, unit "кг").
 Recompute price = qty * unit_price whenever quantity or unit price changes.
 Add, remove, or edit items as the correction says; leave unchanged items exactly as they were.
 New items inherit currency, purchased_at and source from the existing items unless the correction says otherwise.
@@ -96,8 +98,8 @@ Output ONLY JSON: {"items":[...]}.
 CURRENT: {"items":[{"name":"молоко","category":"молочная продукция","qty":1,"unit_price":1.92,"price":1.92,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}
 CORRECTION: молоко не 1.92 а 2.10, добавь хлеб 1.50
 ASSISTANT: {"items":[
-{"name":"молоко","category":"молочная продукция","qty":1,"unit_price":2.10,"price":2.10,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"},
-{"name":"хлеб","category":"выпечка","qty":1,"unit_price":1.50,"price":1.50,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}"""
+{"name":"молоко","category":"молочная продукция","qty":1,"unit":"шт","unit_price":2.10,"price":2.10,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"},
+{"name":"хлеб","category":"выпечка","qty":1,"unit":"шт","unit_price":1.50,"price":1.50,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}"""
 
 
 def text_system(categories: list[str], default_currency: str) -> str:

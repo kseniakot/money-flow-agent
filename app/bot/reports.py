@@ -38,7 +38,9 @@ def build_report_text(rows: list[dict], start: str, end: str) -> str:
         for r in c["items"]:
             when = r["purchased_at"][:16]
             place = f" · {r['place']}" if r.get("place") else ""
-            qty = f" ×{r['qty']:g}" if r.get("qty", 1) != 1 else ""
+            q = r.get("qty", 1)
+            u = r.get("unit") or "шт"
+            qty = f" · {q:g} {u}" if (q != 1 or u != "шт") else ""
             lines.append(
                 f"   {r['product_name']}{qty} — {r['price']:.2f} {r['currency']}"
                 f" · {when}{place}"
