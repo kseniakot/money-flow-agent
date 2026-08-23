@@ -96,6 +96,25 @@ def test_get_and_recent_expenses():
     assert db.get_expense(conn, eid, 999) is None
 
 
+def test_migration_adds_missing_columns():
+    conn = db.get_conn(":memory:")
+    conn.execute(
+        "CREATE TABLE subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " user_id INTEGER, wallet_id INTEGER, name TEXT, amount NUMERIC,"
+        " currency TEXT, day_of_month INTEGER, comment TEXT, active INTEGER DEFAULT 1,"
+        " last_charged_ym TEXT, created_at TEXT DEFAULT (datetime('now','localtime')))"
+    )
+    conn.execute(
+        "INSERT INTO subscriptions (user_id, wallet_id, name, amount, currency, day_of_month)"
+        " VALUES (1, 1, 'Old', 5, 'USD', 13)"
+    )
+    conn.commit()
+    db.init_db(conn)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")]
+    assert "start_date" in cols
+    assert conn.execute("SELECT start_date FROM subscriptions").fetchone()[0] is not None
+
+
 def test_create_category_idempotent():
     conn = make_conn()
     a = db.create_category(conn, "бакалея")

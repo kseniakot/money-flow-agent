@@ -88,8 +88,30 @@ def get_conn(db_path: Path | str | None = None) -> sqlite3.Connection:
     return conn
 
 
+_MIGRATIONS = [
+    ("expenses", "unit_price", "NUMERIC", None),
+    ("expenses", "unit", "TEXT NOT NULL DEFAULT 'шт'", None),
+    (
+        "subscriptions",
+        "start_date",
+        "TEXT",
+        "UPDATE subscriptions SET start_date = date(created_at) WHERE start_date IS NULL",
+    ),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, decl, backfill in _MIGRATIONS:
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if cols and column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            if backfill:
+                conn.execute(backfill)
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
 
 
