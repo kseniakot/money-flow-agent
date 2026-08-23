@@ -9,6 +9,11 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _resolve(path: str) -> Path:
+    p = Path(path)
+    return p if p.is_absolute() else ROOT / p
+
+
 @dataclass(frozen=True)
 class Config:
     tg_token: str
@@ -30,10 +35,8 @@ def load_config() -> Config:
         lm_base_url=os.environ.get("LM_BASE_URL", "http://localhost:1234/v1"),
         lm_model=os.environ.get("LM_MODEL", "qwen3-vl-8b-instruct-mlx"),
         lm_api_key=os.environ.get("LM_API_KEY", "lm-studio"),
-        db_path=Path(os.environ.get("DB_PATH", str(ROOT / "expenses.sqlite"))),
-        checkpoint_path=Path(
-            os.environ.get("CHECKPOINT_PATH", str(ROOT / "checkpoints.sqlite"))
-        ),
+        db_path=_resolve(os.environ.get("DB_PATH", "expenses.sqlite")),
+        checkpoint_path=_resolve(os.environ.get("CHECKPOINT_PATH", "checkpoints.sqlite")),
         whisper_bin=os.environ.get("WHISPER_BIN", "whisper"),
         whisper_model=os.environ.get("WHISPER_MODEL", "medium"),
         default_currency=os.environ.get("DEFAULT_CURRENCY", "BYN"),
