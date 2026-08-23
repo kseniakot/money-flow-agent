@@ -6,7 +6,7 @@ import logging
 import shlex
 import tempfile
 from contextlib import AsyncExitStack
-from datetime import datetime
+from datetime import datetime, timezone
 from datetime import time as dtime
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -118,6 +118,7 @@ async def _present(app, chat_id: int, result: dict) -> None:
         payload = result["__interrupt__"][0].value
         text = build_preview(payload["items"], payload.get("meta", {}))
         await _send_kb(app, chat_id, text + "\n\n" + REVIEW_HINT)
+        _cd(app, chat_id)["review_at"] = datetime.now(timezone.utc)
     elif result.get("status") == "saved":
         await _clear_kb(app, chat_id)
         n = result["result"]["inserted"]
@@ -225,7 +226,14 @@ async def _handle_input(update, context, source: str, text: str, image: str | No
     cd = _cd(app, chat_id)
 
     if await _pending(graph, cfg):
-        if source == "photo":
+        review_at = cd.get("review_at")
+        is_correction = (
+            source != "photo"
+            and review_at is not None
+            and update.message.date >= review_at
+        )
+        if not is_correction:
+            # sent before the current review appeared (or a photo) -> separate expense
             await asyncio.to_thread(_q_enqueue, chat_id, user["id"], source, text, image)
             await update.message.reply_text("⏳ Добавила в очередь — обработаю после текущего.")
             return
