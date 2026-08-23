@@ -4,7 +4,8 @@ Available categories: __CATEGORIES__
 Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
 Category granularity: medium. Group by product family (Examples: напитки, техника, уход за волосами, уход за лицом, бытовая химия, товары для дома, овощи, фрукты, ягоды, мясо, колбасные изделия, одежда, крупы, молочные продукты, сладости), not per single product and not one catch-all. Never put clearly unrelated products in the same category.
 
-Output ONLY JSON: {"items":[{"name","category","qty","unit_price","price","currency"}]}
+Output ONLY JSON: {"place", "items":[{"name","category","qty","unit_price","price","currency"}]}
+- place: the shop or website if the text names where it was bought ("на wildberries"/"вайлдберриз" -> "Wildberries", "в евроопте" -> "Евроопт", "озон" -> "Ozon", "магнит" -> "Магнит", "в санте" -> "Санта"); otherwise null. One place for the whole message.
 - name: short product name as written, normalized case.
 - qty: quantity. "N штук/шт" -> N. Weight "(X за кг)" or "X/кг" -> qty is the weight in kg. Default 1.
 - unit_price: price per one unit or per kg.
@@ -22,18 +23,24 @@ Spoken price with rubles and kopecks:
 Do not invent products, quantities, brands or attributes that are not in the text.
 Separators: commas, semicolons, newlines. Decimal separator is a dot.
 
-# Example (available categories: молочная продукция, ягоды, фрукты, яйца)
+# Example (no place named; available categories: молочная продукция, ягоды, фрукты, яйца)
 USER: молоко 1.92, йогурты теос 3 штуки 2.14 за один, творог 3 - 1.92, бананы 4.32 (2.01 за кг), яйца 3.90
-ASSISTANT: {"items":[
+ASSISTANT: {"place":null,"items":[
 {"name":"молоко","category":"молочная продукция","qty":1,"unit_price":1.92,"price":1.92,"currency":"BYN"},
 {"name":"йогурты теос","category":"молочная продукция","qty":3,"unit_price":2.14,"price":6.42,"currency":"BYN"},
 {"name":"творог","category":"молочная продукция","qty":3,"unit_price":1.92,"price":5.76,"currency":"BYN"},
 {"name":"бананы","category":"фрукты","qty":2.15,"unit_price":2.01,"price":4.32,"currency":"BYN"},
 {"name":"яйца","category":"яйца","qty":1,"unit_price":3.90,"price":3.90,"currency":"BYN"}]}
 
+# Example with a place (default currency BYN; available categories: техника, дом)
+USER: купила на вайлдберриз наушники 30 и коврик для мыши 8
+ASSISTANT: {"place":"Wildberries","items":[
+{"name":"наушники","category":"техника","qty":1,"unit_price":30.00,"price":30.00,"currency":"BYN"},
+{"name":"коврик для мыши","category":"техника","qty":1,"unit_price":8.00,"price":8.00,"currency":"BYN"}]}
+
 # Example spoken prices (default currency BYN; available categories: молочная продукция, выпечка)
 USER: творог рубль 90, йогурт 2 рубля 25 копеек, хлеб 3 рубля
-ASSISTANT: {"items":[
+ASSISTANT: {"place":null,"items":[
 {"name":"творог","category":"молочная продукция","qty":1,"unit_price":1.90,"price":1.90,"currency":"BYN"},
 {"name":"йогурт","category":"молочная продукция","qty":1,"unit_price":2.25,"price":2.25,"currency":"BYN"},
 {"name":"хлеб","category":"выпечка","qty":1,"unit_price":3.00,"price":3.00,"currency":"BYN"}]}"""
@@ -82,6 +89,7 @@ Keep every field on each item: name, category, qty, unit_price, price, currency,
 Recompute price = qty * unit_price whenever quantity or unit price changes.
 Add, remove, or edit items as the correction says; leave unchanged items exactly as they were.
 New items inherit currency, purchased_at and source from the existing items unless the correction says otherwise.
+If the correction names a shop or website ("место вайлдберриз", "купила в озоне"), set "place" on the items accordingly (normalize: "Wildberries", "Ozon", "Евроопт").
 Output ONLY JSON: {"items":[...]}.
 
 # Example

@@ -47,8 +47,9 @@ def parse(
     log.info("parse: source=%s categories=%d", source, len(categories))
     if source in ("text", "voice"):
         data = _invoke(prompts.text_system(categories, default_currency), text, None)
+        place = data.get("place")
         items = [
-            {**it, "purchased_at": now, "place": None, "source": source}
+            {**it, "purchased_at": now, "place": place, "source": source}
             for it in data["items"]
         ]
         return {"items": items, "meta": {}}

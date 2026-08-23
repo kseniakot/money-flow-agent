@@ -32,7 +32,10 @@ def build_preview(items: list[dict], meta: dict) -> str:
         lines.append("🏦 Списания по карте")
     else:
         label = "Расход (голос)" if source == "voice" else "Расход"
-        lines.append(f"🧾 {label} · {items[0].get('purchased_at', '')}")
+        head = f"🧾 {label} · {items[0].get('purchased_at', '')}"
+        if items[0].get("place"):
+            head += f" · {items[0]['place']}"
+        lines.append(head)
 
     lines.append("")
     for i, it in enumerate(items, 1):
