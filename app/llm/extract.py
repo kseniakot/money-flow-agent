@@ -35,6 +35,15 @@ def _invoke(system: str, text: str, image: str | None) -> dict:
     return data
 
 
+def _fix_prices(items: list[dict]) -> list[dict]:
+    for it in items:
+        qty = it.get("qty")
+        unit_price = it.get("unit_price")
+        if qty is not None and unit_price is not None:
+            it["price"] = round(qty * unit_price, 2)
+    return items
+
+
 def parse(
     source: str,
     text: str,
@@ -48,16 +57,18 @@ def parse(
     if source in ("text", "voice"):
         data = _invoke(prompts.text_system(categories, default_currency), text, None)
         place = data.get("place")
-        items = [
-            {**it, "purchased_at": now, "place": place, "source": source}
-            for it in data["items"]
-        ]
+        items = _fix_prices(
+            [
+                {**it, "purchased_at": now, "place": place, "source": source}
+                for it in data["items"]
+            ]
+        )
         return {"items": items, "meta": {}}
 
     if source == "photo":
         data = _invoke(prompts.photo_system(categories, today), text or "", image)
         kind = data.get("kind", "receipt")
-        items = [{**it, "source": kind} for it in data["items"]]
+        items = _fix_prices([{**it, "source": kind} for it in data["items"]])
         if kind == "receipt":
             meta = {
                 "total": data.get("total"),
@@ -81,6 +92,6 @@ def revise(items: list[dict], correction: str, categories: list[str], today: str
             HumanMessage(content=f"CURRENT: {payload}\nCORRECTION: {correction}"),
         ]
     )
-    result = _json(resp.content)["items"]
+    result = _fix_prices(_json(resp.content)["items"])
     log.info("revised → %d items", len(result))
     return result
