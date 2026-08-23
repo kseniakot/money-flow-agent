@@ -62,7 +62,6 @@ def parse(
             meta = {
                 "total": data.get("total"),
                 "discount": data.get("discount", 0),
-                "items_sum": round(sum(i.get("price") or 0 for i in items), 2),
             }
         else:
             meta = {}

@@ -57,10 +57,10 @@ def build_preview(items: list[dict], meta: dict) -> str:
     lines.append("Итого: " + ", ".join(f"{_money(v)} {c}" for c, v in totals.items()))
 
     if source == "receipt" and meta.get("total") is not None:
-        items_sum = meta.get("items_sum")
+        items_sum = round(sum((it.get("price") or 0) for it in items), 2)
         discount = meta.get("discount", 0)
         total = meta["total"]
-        expected = round((items_sum or 0) - discount, 2)
+        expected = round(items_sum - discount, 2)
         if abs(expected - total) > 0.01:
             lines.append(
                 f"⚠️ суммы не сходятся: позиции {items_sum} − скидка {discount}"
