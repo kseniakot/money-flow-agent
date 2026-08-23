@@ -117,6 +117,16 @@ def upsert_user(
     return _row(row)
 
 
+def get_user(conn: sqlite3.Connection, user_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _row(row)
+
+
+def delete_expense(conn: sqlite3.Connection, expense_id: int) -> None:
+    conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    conn.commit()
+
+
 def list_categories(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute("SELECT id, name FROM categories ORDER BY name").fetchall()
     return [dict(r) for r in rows]

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import calendar
 import tempfile
 from datetime import datetime
+from datetime import time as dtime
 
 from langgraph.types import Command
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -146,14 +148,59 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _new_expense(update, context, "photo", caption, uri)
 
 
+def _delete_expense(expense_id: int) -> None:
+    conn = db.get_conn(config.db_path)
+    try:
+        db.delete_expense(conn, expense_id)
+    finally:
+        conn.close()
+
+
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     await q.answer()
-    graph = context.application.bot_data["graph"]
-    cfg = _cfg(update.effective_chat.id)
+    chat_id = update.effective_chat.id
     await q.edit_message_reply_markup(None)
-    result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
-    await _present(update.effective_chat.id, context, result)
+
+    if q.data.startswith("undo:"):
+        await asyncio.to_thread(_delete_expense, int(q.data.split(":")[1]))
+        await context.bot.send_message(chat_id, "↩️ Списание отменено.")
+        return
+
+    graph = context.application.bot_data["graph"]
+    result = await graph.ainvoke(Command(resume={"action": q.data}), _cfg(chat_id))
+    await _present(chat_id, context, result)
+
+
+def _charge_due(now: datetime, db_path: str | None = None) -> list[dict]:
+    ym = now.strftime("%Y-%m")
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    days = [now.day] + (list(range(now.day + 1, 32)) if now.day == last_day else [])
+    conn = db.get_conn(db_path or config.db_path)
+    try:
+        charged = []
+        for day in days:
+            for sub in db.due_subscriptions(conn, ym, day):
+                res = db.charge_subscription(conn, sub, now.strftime("%Y-%m-%d %H:%M:%S"))
+                user = db.get_user(conn, sub["user_id"])
+                charged.append({"sub": sub, "expense_id": res["expense_id"], "tg": user["tg_user_id"]})
+        return charged
+    finally:
+        conn.close()
+
+
+async def _subscription_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    charged = await asyncio.to_thread(_charge_due, datetime.now())
+    for c in charged:
+        sub = c["sub"]
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩️ отменить", callback_data=f"undo:{c['expense_id']}")]]
+        )
+        await context.bot.send_message(
+            c["tg"],
+            f"🔁 Подписка «{sub['name']}»: −{sub['amount']} {sub['currency']}",
+            reply_markup=kb,
+        )
 
 
 async def _post_init(app: Application) -> None:
@@ -164,6 +211,7 @@ async def _post_init(app: Application) -> None:
     await mcp.start()
     app.bot_data["mcp"] = mcp
     app.bot_data["graph"] = build_agent(mcp)
+    app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
 
 
 async def _post_shutdown(app: Application) -> None:
