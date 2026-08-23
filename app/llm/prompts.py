@@ -7,10 +7,11 @@ Category granularity: medium. Group by product family (Examples: напитки,
 Output ONLY JSON: {"place", "items":[{"name","category","qty","unit","unit_price","price","currency"}]}
 - place: the shop or website if the text names where it was bought ("на wildberries"/"вайлдберриз" -> "Wildberries", "в евроопте" -> "Евроопт", "озон" -> "Ozon", "магнит" -> "Магнит", "в санте" -> "Санта"); otherwise null. One place for the whole message.
 - name: short product name as written, normalized case.
-- qty: quantity. "N штук/шт" -> N. Weight "(X за кг)"/"X/кг"/"N кг" -> qty is the weight in kg. Default 1.
+- qty: quantity. Set it ONLY from an explicit count ("N штук/шт/штуки" -> N) or weight ("N кг"/"(X за кг)"/"X/кг" -> weight in kg). A bare number with NO count/weight word is a PRICE, never a quantity. Default qty = 1.
 - unit: unit of measure — "шт" (default), "кг" for weight, "уп" for пачка/упаковка, "л"/"мл" for liquids, "г" for grams.
 - unit_price: price per one unit or per kg.
 - price: line total for the whole position (qty * unit_price).
+- A bare number, whether it comes BEFORE or AFTER the product name, is the PRICE: qty = 1, unit_price = price = that number ("17 шаурма" -> шаурма, qty 1, price 17).
 - currency: currency code; default "__CURRENCY__". The words "рубль/рубля/рублей/руб/копеек/коп" mean the DEFAULT currency "__CURRENCY__", NOT a foreign one. Switch currency only on an explicit foreign mention: "долларов"/"usd" -> USD, "евро"/"eur" -> EUR, "злотых"/"pln" -> PLN, "российских рублей"/"рос руб" -> RUB.
 Price logic:
 - "X за один" / "по X" -> unit_price = X, price = qty * X.
@@ -32,6 +33,11 @@ ASSISTANT: {"place":null,"items":[
 {"name":"творог","category":"молочная продукция","qty":3,"unit":"шт","unit_price":1.92,"price":5.76,"currency":"BYN"},
 {"name":"бананы","category":"фрукты","qty":2.15,"unit":"кг","unit_price":2.01,"price":4.32,"currency":"BYN"},
 {"name":"яйца","category":"яйца","qty":1,"unit":"шт","unit_price":3.90,"price":3.90,"currency":"BYN"}]}
+
+# Example (bare number is the price, not quantity; available categories: еда)
+USER: 17 шаурма на обед
+ASSISTANT: {"place":null,"items":[
+{"name":"шаурма","category":"еда","qty":1,"unit":"шт","unit_price":17.00,"price":17.00,"currency":"BYN"}]}
 
 # Example with place and units (default currency BYN; available categories: техника, орехи, товары для дома)
 USER: купила на вайлдберриз арахисовую пасту 1 кг 18.93 и фильтры для кувшина 1 упаковка 2 штуки 25.10
