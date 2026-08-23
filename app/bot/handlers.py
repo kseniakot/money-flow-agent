@@ -174,6 +174,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _apply_correction(update, context, graph, cfg, text: str) -> None:
+    await _clear_kb(update.effective_chat.id, context)
     result = await graph.ainvoke(
         Command(resume={"action": "revise", "correction": text}), cfg
     )
