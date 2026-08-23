@@ -322,18 +322,22 @@ def _charge_due(now: datetime, db_path: str | None = None, only_sub_id: int | No
         conn.close()
 
 
-async def _subscription_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    charged = await asyncio.to_thread(_charge_due, datetime.now())
+async def _notify_charged(bot, charged: list[dict]) -> None:
     for c in charged:
         sub = c["sub"]
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩️ отменить", callback_data=f"undo:{c['expense_id']}")]]
         )
-        await context.bot.send_message(
+        await bot.send_message(
             c["tg"],
             f"🔁 Подписка «{sub['name']}»: −{sub['amount']} {sub['currency']}",
             reply_markup=kb,
         )
+
+
+async def _subscription_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    charged = await asyncio.to_thread(_charge_due, datetime.now())
+    await _notify_charged(context.bot, charged)
 
 
 def _float(s: str) -> float:
@@ -804,6 +808,8 @@ async def _post_init(app: Application) -> None:
     app.bot_data["graph"] = build_agent(mcp, saver)
     await app.bot.set_my_commands(COMMANDS)
     app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
+    charged = await asyncio.to_thread(_charge_due, datetime.now())
+    await _notify_charged(app.bot, charged)
 
 
 async def _post_shutdown(app: Application) -> None:

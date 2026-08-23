@@ -410,7 +410,6 @@ def deactivate_subscription(conn: sqlite3.Connection, subscription_id: int) -> N
 
 def due_subscriptions(conn: sqlite3.Connection, on_date: datetime) -> list[dict]:
     ym = on_date.strftime("%Y-%m")
-    day = on_date.day
     days_in_month = calendar.monthrange(on_date.year, on_date.month)[1]
     on_str = on_date.strftime("%Y-%m-%d")
     rows = conn.execute(
@@ -419,12 +418,12 @@ def due_subscriptions(conn: sqlite3.Connection, on_date: datetime) -> list[dict]
         WHERE active = 1
           AND date(start_date) <= date(?)
           AND (last_charged_ym IS NULL OR last_charged_ym != ?)
-          AND (
-                (day_of_month = ? AND day_of_month <= ?)
-                OR (? = 1 AND day_of_month > ?)
-          )
+          AND date(
+                printf('%s-%02d', ?,
+                       CASE WHEN day_of_month <= ? THEN day_of_month ELSE 1 END)
+              ) <= date(?)
         """,
-        (on_str, ym, day, days_in_month, day, days_in_month),
+        (on_str, ym, ym, days_in_month, on_str),
     ).fetchall()
     return [dict(r) for r in rows]
 

@@ -38,6 +38,17 @@ def test_day_31_rolls_to_first_of_short_month(tmp_path):
     assert bot._charge_due(datetime(2026, 9, 30, 9, 0, 0), path) == []
 
 
+def test_catches_up_missed_day(tmp_path):
+    path, conn = setup(tmp_path)
+    user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
+    db.create_subscription(conn, user["id"], "Netflix", 12.99, "USD", "2026-08-05")
+
+    # bot was offline on the 5th and only runs on the 10th -> catch up
+    assert len(bot._charge_due(datetime(2026, 8, 10, 9, 0, 0), path)) == 1
+    # but not twice in the same month
+    assert bot._charge_due(datetime(2026, 8, 15, 9, 0, 0), path) == []
+
+
 def test_not_charged_before_start_or_other_day(tmp_path):
     path, conn = setup(tmp_path)
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
