@@ -389,10 +389,11 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(f"За {start} — {end} расходов нет.")
         return
     chat_id = update.effective_chat.id
-    by_cat = sorted(rows, key=lambda r: (r["category_name"], r["purchased_at"]))
-    data = io.BytesIO(reports.expenses_csv(by_cat))
+    data = io.BytesIO(await asyncio.to_thread(reports.build_report_xlsx, rows))
     await context.bot.send_document(
-        chat_id, InputFile(data, filename=f"report_{start}_{end}.csv")
+        chat_id,
+        InputFile(data, filename=f"report_{start}_{end}.xlsx"),
+        caption="Разверни категорию (значок + слева), чтобы увидеть покупки.",
     )
     for cur, png in await asyncio.to_thread(reports.build_charts, rows):
         await context.bot.send_photo(chat_id, png)

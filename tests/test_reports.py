@@ -28,6 +28,26 @@ def test_build_charts_one_per_currency():
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_report_xlsx_groups_items_under_category():
+    import io
+
+    from openpyxl import load_workbook
+
+    rows = [
+        row("молоко", "молочка", 1.92),
+        row("масло", "молочка", 4.65),
+        row("наушники", "техника", 30.0, "USD"),
+    ]
+    data = reports.build_report_xlsx(rows)
+    assert data[:2] == b"PK"
+    ws = load_workbook(io.BytesIO(data)).active
+    assert ws.sheet_properties.outlinePr.summaryBelow is False
+    col_a = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)]
+    assert "молочка" in col_a and "техника" in col_a
+    levels = [ws.row_dimensions[r].outline_level for r in range(1, ws.max_row + 1)]
+    assert 1 in levels
+
+
 def test_expenses_csv_has_bom_and_header():
     data = reports.expenses_csv([row("молоко", "молочка", 1.92, place="Корона")])
     assert data[:3] == b"\xef\xbb\xbf"

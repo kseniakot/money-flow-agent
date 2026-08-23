@@ -3,9 +3,60 @@ import io
 from collections import defaultdict
 
 import matplotlib
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+
+def build_report_xlsx(rows: list[dict]) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Отчёт"
+    ws.sheet_properties.outlinePr.summaryBelow = False
+
+    headers = ["Категория / продукт", "Дата", "Магазин", "Кол-во", "Цена/ед", "Сумма", "Валюта"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0F7D6B")
+
+    cats: dict[str, list] = {}
+    for r in rows:
+        cats.setdefault(r["category_name"], []).append(r)
+
+    for cat in sorted(cats):
+        items = cats[cat]
+        totals: dict[str, float] = defaultdict(float)
+        for r in items:
+            totals[r["currency"]] += r["price"] or 0
+        total_str = ", ".join(f"{v:.2f} {cur}" for cur, v in totals.items())
+
+        ws.append([cat, "", "", "", "", total_str, ""])
+        for cell in ws[ws.max_row]:
+            cell.font = Font(bold=True)
+
+        for r in sorted(items, key=lambda x: x["purchased_at"]):
+            ws.append(
+                [
+                    r["product_name"],
+                    r["purchased_at"][:16],
+                    r["place"] or "",
+                    f"{r['qty']:g} {r['unit']}",
+                    r["unit_price"],
+                    r["price"],
+                    r["currency"],
+                ]
+            )
+            ws.row_dimensions[ws.max_row].outline_level = 1
+
+    for col, width in zip("ABCDEFG", [28, 18, 20, 12, 10, 10, 8]):
+        ws.column_dimensions[col].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def expenses_csv(rows: list[dict]) -> bytes:
