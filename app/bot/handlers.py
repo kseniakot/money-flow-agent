@@ -382,9 +382,16 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     rows = await asyncio.to_thread(work)
     await update.message.reply_text(reports.build_report_text(rows, start, end))
-    if rows:
-        png = await asyncio.to_thread(reports.build_chart, rows)
-        await context.bot.send_photo(update.effective_chat.id, png)
+    if not rows:
+        return
+    chat_id = update.effective_chat.id
+    by_cat = sorted(rows, key=lambda r: (r["category_name"], r["purchased_at"]))
+    data = io.BytesIO(reports.expenses_csv(by_cat))
+    await context.bot.send_document(
+        chat_id, InputFile(data, filename=f"report_{start}_{end}.csv")
+    )
+    for cur, png in await asyncio.to_thread(reports.build_charts, rows):
+        await context.bot.send_photo(chat_id, png)
 
 
 async def wallets_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -646,19 +653,7 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not rows:
         await update.message.reply_text("Расходов пока нет.")
         return
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(
-        ["id", "дата", "продукт", "категория", "кол-во", "единица",
-         "цена_за_ед", "сумма", "валюта", "место", "источник"]
-    )
-    for r in rows:
-        writer.writerow(
-            [r["id"], r["purchased_at"], r["product_name"], r["category_name"],
-             r["qty"], r["unit"], r["unit_price"], r["price"], r["currency"],
-             r["place"] or "", r["source"]]
-        )
-    data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    data = io.BytesIO(reports.expenses_csv(rows))
     await context.bot.send_document(
         update.effective_chat.id,
         InputFile(data, filename="history.csv"),
