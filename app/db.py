@@ -127,6 +127,20 @@ def delete_expense(conn: sqlite3.Connection, expense_id: int) -> None:
     conn.commit()
 
 
+def last_expense(conn: sqlite3.Connection, user_id: int) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT e.id, e.price, e.currency, p.name AS product_name
+        FROM expenses e
+        JOIN products p ON p.id = e.product_id
+        WHERE e.user_id = ?
+        ORDER BY e.id DESC LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    return _row(row)
+
+
 def list_categories(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute("SELECT id, name FROM categories ORDER BY name").fetchall()
     return [dict(r) for r in rows]

@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import calendar
+import csv
+import io
 import tempfile
 from datetime import datetime
 from datetime import time as dtime
 
 from langgraph.types import Command
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -18,7 +20,7 @@ from telegram.ext import (
     filters,
 )
 
-from app import db, transcribe
+from app import db, rates, reports, transcribe
 from app.agent import build_agent
 from app.config import config
 from app.mcp_client import MCPClient
@@ -203,6 +205,293 @@ async def _subscription_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+def _float(s: str) -> float:
+    return float(s.replace(",", "."))
+
+
+async def categories_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    cats = await context.application.bot_data["mcp"].categories()
+    body = "\n".join(f"• {c}" for c in cats) if cats else "пока нет"
+    await update.message.reply_text("Категории:\n" + body)
+
+
+async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 2:
+        await update.message.reply_text("Формат: /report 2026-08-01 2026-08-31")
+        return
+    start, end = context.args
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            return db.query_expenses(conn, start, end, user["id"])
+        finally:
+            conn.close()
+
+    rows = await asyncio.to_thread(work)
+    await update.message.reply_text(reports.build_report_text(rows, start, end))
+    if rows:
+        png = await asyncio.to_thread(reports.build_chart, rows)
+        await context.bot.send_photo(update.effective_chat.id, png)
+
+
+async def wallets_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            ws = db.list_wallets(conn, user["id"])
+        finally:
+            conn.close()
+        total = 0.0
+        rendered = []
+        for w in ws:
+            usd = rates.to_usd(w["balance"], w["currency"])
+            total += usd
+            rendered.append((w, usd))
+        return rendered, total
+
+    rendered, total = await asyncio.to_thread(work)
+    if not rendered:
+        await update.message.reply_text("Кошельков пока нет.")
+        return
+    lines = ["💰 Кошельки:"]
+    for w, usd in rendered:
+        tag = "🐷" if w["kind"] == "savings" else "💳"
+        lines.append(f"{tag} {w['currency']} ({w['kind']}): {w['balance']:.2f} ≈ {usd:.2f}$")
+    lines.append(f"─────\nВсего ≈ {total:.2f}$")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def deposit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 2:
+        await update.message.reply_text("Формат: /deposit 100 USD [комментарий]")
+        return
+    try:
+        amount = _float(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Сумма числом: /deposit 100 USD")
+        return
+    currency = context.args[1].upper()
+    comment = " ".join(context.args[2:]) or None
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            w = db.get_or_create_wallet(conn, user["id"], currency, "spending")
+            db.add_movement(conn, w["id"], "deposit", amount, comment)
+            return db.wallet_balance(conn, w["id"])
+        finally:
+            conn.close()
+
+    bal = await asyncio.to_thread(work)
+    await update.message.reply_text(f"✅ +{amount:.2f} {currency}. Баланс: {bal:.2f} {currency}")
+
+
+async def savings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+    args = context.args
+    if not args:
+        def show():
+            conn = db.get_conn(config.db_path)
+            try:
+                return [w for w in db.list_wallets(conn, user["id"]) if w["kind"] == "savings"]
+            finally:
+                conn.close()
+
+        ws = await asyncio.to_thread(show)
+        if not ws:
+            await update.message.reply_text("Копилка пуста. Пополнить: /savings 100 USD")
+            return
+        body = "\n".join(f"{w['currency']}: {w['balance']:.2f}" for w in ws)
+        await update.message.reply_text("🐷 Копилка:\n" + body)
+        return
+
+    if len(args) < 2:
+        await update.message.reply_text("Формат: /savings 100 USD [комментарий]")
+        return
+    try:
+        amount = _float(args[0])
+    except ValueError:
+        await update.message.reply_text("Сумма числом: /savings 100 USD")
+        return
+    currency = args[1].upper()
+    comment = " ".join(args[2:]) or None
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            w = db.get_or_create_wallet(conn, user["id"], currency, "savings")
+            db.add_movement(conn, w["id"], "deposit", amount, comment)
+            return db.wallet_balance(conn, w["id"])
+        finally:
+            conn.close()
+
+    bal = await asyncio.to_thread(work)
+    await update.message.reply_text(f"🐷 +{amount:.2f} {currency}. Копилка: {bal:.2f} {currency}")
+
+
+async def correct_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Формат: /correct USD 90 [savings]")
+        return
+    currency = args[0].upper()
+    try:
+        target = _float(args[1])
+    except ValueError:
+        await update.message.reply_text("Цель числом: /correct USD 90")
+        return
+    kind = "savings" if len(args) > 2 and args[2].lower() == "savings" else "spending"
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            w = db.get_or_create_wallet(conn, user["id"], currency, kind)
+            cur = db.wallet_balance(conn, w["id"])
+            db.add_movement(conn, w["id"], "correction", round(target - cur, 2), "correction")
+            return db.wallet_balance(conn, w["id"])
+        finally:
+            conn.close()
+
+    bal = await asyncio.to_thread(work)
+    await update.message.reply_text(f"🛠 Баланс {currency} ({kind}) = {bal:.2f}")
+
+
+async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+    args = context.args
+
+    if not args:
+        def show():
+            conn = db.get_conn(config.db_path)
+            try:
+                return db.list_subscriptions(conn, user["id"])
+            finally:
+                conn.close()
+
+        subs = await asyncio.to_thread(show)
+        if not subs:
+            await update.message.reply_text(
+                "Подписок нет. Добавить: /subs add Netflix 12.99 USD 15 [коммент]"
+            )
+            return
+        lines = ["🔁 Подписки:"]
+        for s in subs:
+            c = f" · {s['comment']}" if s.get("comment") else ""
+            lines.append(
+                f"#{s['id']} {s['name']} — {s['amount']:.2f} {s['currency']},"
+                f" {s['day_of_month']} числа{c}"
+            )
+        lines.append("\nУдалить: /subs del <id>")
+        await update.message.reply_text("\n".join(lines))
+        return
+
+    if args[0] == "del" and len(args) == 2:
+        try:
+            sid = int(args[1])
+        except ValueError:
+            await update.message.reply_text("id числом: /subs del 3")
+            return
+
+        def work():
+            conn = db.get_conn(config.db_path)
+            try:
+                db.deactivate_subscription(conn, sid)
+            finally:
+                conn.close()
+
+        await asyncio.to_thread(work)
+        await update.message.reply_text(f"Подписка #{sid} удалена.")
+        return
+
+    if args[0] == "add" and len(args) >= 5:
+        try:
+            amount = _float(args[2])
+            day = int(args[4])
+        except ValueError:
+            await update.message.reply_text(
+                "Формат: /subs add <name> <amount> <currency> <day> [коммент]"
+            )
+            return
+        name = args[1]
+        currency = args[3].upper()
+        comment = " ".join(args[5:]) or None
+
+        def work():
+            conn = db.get_conn(config.db_path)
+            try:
+                return db.create_subscription(conn, user["id"], name, amount, currency, day, comment)
+            finally:
+                conn.close()
+
+        s = await asyncio.to_thread(work)
+        await update.message.reply_text(
+            f"✅ Подписка #{s['id']} {name}: {amount:.2f} {currency}, {day} числа"
+        )
+        return
+
+    await update.message.reply_text(
+        "Формат: /subs | /subs add <name> <amount> <currency> <day> [коммент] | /subs del <id>"
+    )
+
+
+async def undo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            last = db.last_expense(conn, user["id"])
+            if last:
+                db.delete_expense(conn, last["id"])
+            return last
+        finally:
+            conn.close()
+
+    last = await asyncio.to_thread(work)
+    if not last:
+        await update.message.reply_text("Нечего отменять.")
+        return
+    await update.message.reply_text(
+        f"↩️ Удалил: {last['product_name']} — {last['price']:.2f} {last['currency']}"
+    )
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            return db.query_expenses(conn, "0001-01-01", "9999-12-31", user["id"])
+        finally:
+            conn.close()
+
+    rows = await asyncio.to_thread(work)
+    if not rows:
+        await update.message.reply_text("Расходов нет.")
+        return
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["purchased_at", "category", "product", "qty", "unit_price", "price", "currency", "place", "source"]
+    )
+    for r in rows:
+        writer.writerow(
+            [r["purchased_at"], r["category_name"], r["product_name"], r["qty"],
+             r["unit_price"], r["price"], r["currency"], r["place"] or "", r["source"]]
+        )
+    data = io.BytesIO(buf.getvalue().encode("utf-8"))
+    await context.bot.send_document(
+        update.effective_chat.id, InputFile(data, filename="expenses.csv")
+    )
+
+
 async def _post_init(app: Application) -> None:
     conn = db.get_conn(config.db_path)
     db.init_db(conn)
@@ -229,6 +518,15 @@ def main() -> None:
         .build()
     )
     app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CommandHandler("report", report_cmd))
+    app.add_handler(CommandHandler("wallets", wallets_cmd))
+    app.add_handler(CommandHandler("deposit", deposit_cmd))
+    app.add_handler(CommandHandler("savings", savings_cmd))
+    app.add_handler(CommandHandler("correct", correct_cmd))
+    app.add_handler(CommandHandler("subs", subs_cmd))
+    app.add_handler(CommandHandler("categories", categories_cmd))
+    app.add_handler(CommandHandler("undo", undo_cmd))
+    app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
