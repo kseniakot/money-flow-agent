@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS queue (
     user_id INTEGER NOT NULL,
     source TEXT NOT NULL,
     text TEXT,
-    image TEXT,
+    file_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 """
@@ -107,6 +107,7 @@ _MIGRATIONS = [
         "TEXT",
         "UPDATE subscriptions SET start_date = date(created_at) WHERE start_date IS NULL",
     ),
+    ("queue", "file_id", "TEXT", None),
 ]
 
 
@@ -474,11 +475,11 @@ def enqueue(
     user_id: int,
     source: str,
     text: str | None,
-    image: str | None,
+    file_id: str | None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO queue (chat_id, user_id, source, text, image) VALUES (?, ?, ?, ?, ?)",
-        (chat_id, user_id, source, text, image),
+        "INSERT INTO queue (chat_id, user_id, source, text, file_id) VALUES (?, ?, ?, ?, ?)",
+        (chat_id, user_id, source, text, file_id),
     )
     conn.commit()
     return cur.lastrowid

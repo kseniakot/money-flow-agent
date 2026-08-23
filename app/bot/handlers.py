@@ -6,7 +6,7 @@ import logging
 import shlex
 import tempfile
 from contextlib import AsyncExitStack
-from datetime import datetime, timezone
+from datetime import datetime
 from datetime import time as dtime
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -118,7 +118,6 @@ async def _present(app, chat_id: int, result: dict) -> None:
         payload = result["__interrupt__"][0].value
         text = build_preview(payload["items"], payload.get("meta", {}))
         await _send_kb(app, chat_id, text + "\n\n" + REVIEW_HINT)
-        _cd(app, chat_id)["review_at"] = datetime.now(timezone.utc)
     elif result.get("status") == "saved":
         await _clear_kb(app, chat_id)
         n = result["result"]["inserted"]
@@ -152,10 +151,10 @@ def _user_currency(user_id: int) -> str:
         conn.close()
 
 
-def _q_enqueue(chat_id, user_id, source, text, image) -> int:
+def _q_enqueue(chat_id, user_id, source, text, file_id) -> int:
     conn = db.get_conn(config.db_path)
     try:
-        return db.enqueue(conn, chat_id, user_id, source, text, image)
+        return db.enqueue(conn, chat_id, user_id, source, text, file_id)
     finally:
         conn.close()
 
@@ -184,40 +183,73 @@ def _q_count(chat_id):
         conn.close()
 
 
+async def _transcribe_file(bot, file_id: str) -> str:
+    tg_file = await bot.get_file(file_id)
+    path = tempfile.mktemp(suffix=".ogg")
+    await tg_file.download_to_drive(path)
+    return await asyncio.to_thread(transcribe.transcribe, path)
+
+
+async def _resolve_input(app, front: dict) -> tuple[str, str | None]:
+    source = front["source"]
+    if source == "voice":
+        text = await _transcribe_file(app.bot, front["file_id"])
+        await app.bot.send_message(front["chat_id"], f"🎤 {text}")
+        return text, None
+    if source == "photo":
+        tg_file = await app.bot.get_file(front["file_id"])
+        raw = await tg_file.download_as_bytearray()
+        uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
+        return front["text"] or "", uri
+    return front["text"] or "", None
+
+
 async def _pump(app, chat_id: int) -> None:
     cd = _cd(app, chat_id)
     if cd.get("busy"):
         return
-    graph = app.bot_data["graph"]
-    cfg = _cfg(chat_id)
-    if await _pending(graph, cfg):
-        return
-    front = await asyncio.to_thread(_q_front, chat_id)
-    if front is None:
-        return
-    cd["busy"] = True
-    cd["current_queue_id"] = front["id"]
+    cd["busy"] = True  # claim atomically (no await between check and set)
     try:
+        graph = app.bot_data["graph"]
+        cfg = _cfg(chat_id)
+        if await _pending(graph, cfg):
+            return
+        front = await asyncio.to_thread(_q_front, chat_id)
+        if front is None:
+            return
+        cd["current_queue_id"] = front["id"]
+        remaining = await asyncio.to_thread(_q_count, chat_id)
+        pid = None
+        try:
+            pid = (await app.bot.send_message(chat_id, f"⏳ Обрабатываю… (в очереди: {remaining})")).message_id
+        except Exception:
+            pass
+        text, image = await _resolve_input(app, front)
         cats = await app.bot_data["mcp"].categories()
         currency = await asyncio.to_thread(_user_currency, front["user_id"])
         state = {
             "user_id": front["user_id"],
             "source": front["source"],
-            "text": front["text"] or "",
-            "image": front["image"],
+            "text": text,
+            "image": image,
             "categories": cats,
             "default_currency": currency,
             "now": _now(),
             "today": _today(),
         }
         log.info("pump chat %s: item %s source=%s", chat_id, front["id"], front["source"])
-        result = await _processing(app, chat_id, graph.ainvoke(state, cfg))
+        result = await graph.ainvoke(state, cfg)
+        if pid is not None:
+            try:
+                await app.bot.delete_message(chat_id, pid)
+            except Exception:
+                pass
         await _present(app, chat_id, result)
     finally:
         cd["busy"] = False
 
 
-async def _handle_input(update, context, source: str, text: str, image: str | None) -> None:
+async def _handle_input(update, context, source: str, text: str | None, file_id: str | None) -> None:
     app = context.application
     chat_id = update.effective_chat.id
     user = await asyncio.to_thread(_register, update)
@@ -226,22 +258,20 @@ async def _handle_input(update, context, source: str, text: str, image: str | No
     cd = _cd(app, chat_id)
 
     if await _pending(graph, cfg):
-        review_at = cd.get("review_at")
-        is_correction = (
-            source != "photo"
-            and review_at is not None
-            and update.message.date >= review_at
-        )
-        if not is_correction:
-            # sent before the current review appeared (or a photo) -> separate expense
-            await asyncio.to_thread(_q_enqueue, chat_id, user["id"], source, text, image)
-            await update.message.reply_text("⏳ Добавила в очередь — обработаю после текущего.")
+        # a review is being shown -> this message is a correction to it
+        if source == "photo":
+            await update.message.reply_text(
+                "Фото-правка не поддержана. Заверши текущий расход (записать/удалить)."
+            )
             return
         if cd.get("busy"):
-            await update.message.reply_text("⏳ Секунду, обрабатываю…")
+            # busy processing a previous correction -> ignore this one
             return
         cd["busy"] = True
         try:
+            if source == "voice":
+                text = await _transcribe_file(app.bot, file_id)
+                await update.message.reply_text(f"🎤 {text}")
             await _clear_kb(app, chat_id)
             result = await _processing(
                 app,
@@ -253,10 +283,10 @@ async def _handle_input(update, context, source: str, text: str, image: str | No
             cd["busy"] = False
         return
 
-    await asyncio.to_thread(_q_enqueue, chat_id, user["id"], source, text, image)
+    # no active review -> queue this input instantly (raw), then process
+    await asyncio.to_thread(_q_enqueue, chat_id, user["id"], source, text, file_id)
     n = await asyncio.to_thread(_q_count, chat_id)
-    if n > 1:
-        await update.message.reply_text(f"⏳ В очереди: {n}. Обработаю по очереди.")
+    await update.message.reply_text(f"⏳ Принято. В очереди: {n}.")
     await _pump(app, chat_id)
 
 
@@ -287,22 +317,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("voice from chat %s", update.effective_chat.id)
-    tg_file = await update.message.voice.get_file()
-    path = tempfile.mktemp(suffix=".ogg")
-    await tg_file.download_to_drive(path)
-    text = await asyncio.to_thread(transcribe.transcribe, path)
-    log.info("transcribed: %r", text)
-    await update.message.reply_text(f"🎤 {text}")
-    await _handle_input(update, context, "voice", text, None)
+    await _handle_input(update, context, "voice", None, update.message.voice.file_id)
 
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    tg_file = await update.message.photo[-1].get_file()
-    raw = await tg_file.download_as_bytearray()
-    uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
     caption = update.message.caption or ""
     log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
-    await _handle_input(update, context, "photo", caption, uri)
+    await _handle_input(update, context, "photo", caption, update.message.photo[-1].file_id)
 
 
 def _delete_expense(expense_id: int) -> None:
