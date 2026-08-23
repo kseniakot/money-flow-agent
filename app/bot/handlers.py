@@ -104,6 +104,10 @@ async def _pending(graph, cfg: dict) -> bool:
     return bool(state.next)
 
 
+def _is_busy(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    return context.chat_data.get("busy", False)
+
+
 async def _present(chat_id: int, context: ContextTypes.DEFAULT_TYPE, result: dict) -> None:
     if "__interrupt__" in result:
         payload = result["__interrupt__"][0].value
@@ -155,57 +159,76 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    graph = context.application.bot_data["graph"]
-    cfg = _cfg(update.effective_chat.id)
-    text = update.message.text
-    log.info("text from chat %s: %r", update.effective_chat.id, text)
-    if await _pending(graph, cfg):
-        if context.chat_data.get("editing"):
-            result = await graph.ainvoke(
-                Command(resume={"action": "revise", "correction": text}), cfg
-            )
-            await _present(update.effective_chat.id, context, result)
-        else:
-            await _remind_pending(update.effective_chat.id, context)
+async def _correct_or_remind(update, context, graph, cfg, text: str) -> None:
+    if context.chat_data.get("editing"):
+        result = await graph.ainvoke(
+            Command(resume={"action": "revise", "correction": text}), cfg
+        )
+        await _present(update.effective_chat.id, context, result)
     else:
-        await _new_expense(update, context, "text", text, None)
+        await _remind_pending(update.effective_chat.id, context)
+
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if _is_busy(context):
+        await update.message.reply_text("⏳ Секунду, обрабатываю предыдущее…")
+        return
+    context.chat_data["busy"] = True
+    try:
+        graph = context.application.bot_data["graph"]
+        cfg = _cfg(update.effective_chat.id)
+        text = update.message.text
+        log.info("text from chat %s: %r", update.effective_chat.id, text)
+        if await _pending(graph, cfg):
+            await _correct_or_remind(update, context, graph, cfg, text)
+        else:
+            await _new_expense(update, context, "text", text, None)
+    finally:
+        context.chat_data["busy"] = False
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    log.info("voice from chat %s", update.effective_chat.id)
-    tg_file = await update.message.voice.get_file()
-    path = tempfile.mktemp(suffix=".ogg")
-    await tg_file.download_to_drive(path)
-    text = await asyncio.to_thread(transcribe.transcribe, path)
-    log.info("transcribed: %r", text)
-    graph = context.application.bot_data["graph"]
-    cfg = _cfg(update.effective_chat.id)
-    await update.message.reply_text(f"🎤 {text}")
-    if await _pending(graph, cfg):
-        if context.chat_data.get("editing"):
-            result = await graph.ainvoke(
-                Command(resume={"action": "revise", "correction": text}), cfg
-            )
-            await _present(update.effective_chat.id, context, result)
+    if _is_busy(context):
+        await update.message.reply_text("⏳ Секунду, обрабатываю предыдущее…")
+        return
+    context.chat_data["busy"] = True
+    try:
+        log.info("voice from chat %s", update.effective_chat.id)
+        tg_file = await update.message.voice.get_file()
+        path = tempfile.mktemp(suffix=".ogg")
+        await tg_file.download_to_drive(path)
+        text = await asyncio.to_thread(transcribe.transcribe, path)
+        log.info("transcribed: %r", text)
+        graph = context.application.bot_data["graph"]
+        cfg = _cfg(update.effective_chat.id)
+        await update.message.reply_text(f"🎤 {text}")
+        if await _pending(graph, cfg):
+            await _correct_or_remind(update, context, graph, cfg, text)
         else:
-            await _remind_pending(update.effective_chat.id, context)
-    else:
-        await _new_expense(update, context, "voice", text, None)
+            await _new_expense(update, context, "voice", text, None)
+    finally:
+        context.chat_data["busy"] = False
 
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    graph = context.application.bot_data["graph"]
-    cfg = _cfg(update.effective_chat.id)
-    if await _pending(graph, cfg):
-        await _remind_pending(update.effective_chat.id, context)
+    if _is_busy(context):
+        await update.message.reply_text("⏳ Секунду, обрабатываю предыдущее…")
         return
-    tg_file = await update.message.photo[-1].get_file()
-    raw = await tg_file.download_as_bytearray()
-    uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
-    caption = update.message.caption or ""
-    log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
-    await _new_expense(update, context, "photo", caption, uri)
+    context.chat_data["busy"] = True
+    try:
+        graph = context.application.bot_data["graph"]
+        cfg = _cfg(update.effective_chat.id)
+        if await _pending(graph, cfg):
+            await _remind_pending(update.effective_chat.id, context)
+            return
+        tg_file = await update.message.photo[-1].get_file()
+        raw = await tg_file.download_as_bytearray()
+        uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
+        caption = update.message.caption or ""
+        log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
+        await _new_expense(update, context, "photo", caption, uri)
+    finally:
+        context.chat_data["busy"] = False
 
 
 def _delete_expense(expense_id: int) -> None:
@@ -218,16 +241,24 @@ def _delete_expense(expense_id: int) -> None:
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass
     chat_id = update.effective_chat.id
     log.info("button %r from chat %s", q.data, chat_id)
-    await q.edit_message_reply_markup(None)
 
     if q.data.startswith("undo:"):
+        await q.edit_message_reply_markup(None)
         await asyncio.to_thread(_delete_expense, int(q.data.split(":")[1]))
         await context.bot.send_message(chat_id, "↩️ Списание отменено.")
         return
 
+    if _is_busy(context):
+        await context.bot.send_message(chat_id, "⏳ Секунду, обрабатываю…")
+        return
+
+    await q.edit_message_reply_markup(None)
     graph = context.application.bot_data["graph"]
     cfg = _cfg(chat_id)
     if not await _pending(graph, cfg):
@@ -240,11 +271,16 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     context.chat_data.pop("editing", None)
-    result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
-    await _present(chat_id, context, result)
-    replace_id = context.chat_data.pop("replace_id", None)
-    if replace_id is not None and result.get("status") == "saved":
-        await asyncio.to_thread(_delete_expense, replace_id)
+    context.chat_data["busy"] = True
+    try:
+        result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
+        await _present(chat_id, context, result)
+        replace_id = context.chat_data.pop("replace_id", None)
+        if replace_id is not None and result.get("status") == "saved":
+            await asyncio.to_thread(_delete_expense, replace_id)
+            log.info("edit: replaced expense %s", replace_id)
+    finally:
+        context.chat_data["busy"] = False
         log.info("edit: replaced expense %s", replace_id)
 
 
@@ -629,6 +665,9 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     graph = context.application.bot_data["graph"]
     cfg = _cfg(chat_id)
+    if _is_busy(context):
+        await update.message.reply_text("⏳ Секунду, обрабатываю…")
+        return
     if await _pending(graph, cfg):
         await _remind_pending(chat_id, context)
         return
@@ -672,8 +711,12 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     }
     log.info("edit: open expense %s for chat %s", eid, chat_id)
     await update.message.reply_text(f"✏️ Правка #{eid}. Нажми ✏️ и пришли изменения.")
-    result = await graph.ainvoke(state, cfg)
-    await _present(chat_id, context, result)
+    context.chat_data["busy"] = True
+    try:
+        result = await graph.ainvoke(state, cfg)
+        await _present(chat_id, context, result)
+    finally:
+        context.chat_data["busy"] = False
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -750,6 +793,7 @@ def main() -> None:
     app = (
         Application.builder()
         .token(config.tg_token)
+        .concurrent_updates(True)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()
