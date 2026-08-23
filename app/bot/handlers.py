@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import calendar
 import csv
 import io
 import logging
@@ -299,18 +298,16 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.info("edit: replaced expense %s", replace_id)
 
 
-def _charge_due(now: datetime, db_path: str | None = None) -> list[dict]:
-    ym = now.strftime("%Y-%m")
-    last_day = calendar.monthrange(now.year, now.month)[1]
-    days = [now.day] + (list(range(now.day + 1, 32)) if now.day == last_day else [])
+def _charge_due(now: datetime, db_path: str | None = None, only_sub_id: int | None = None) -> list[dict]:
     conn = db.get_conn(db_path or config.db_path)
     try:
         charged = []
-        for day in days:
-            for sub in db.due_subscriptions(conn, ym, day):
-                res = db.charge_subscription(conn, sub, now.strftime("%Y-%m-%d %H:%M:%S"))
-                user = db.get_user(conn, sub["user_id"])
-                charged.append({"sub": sub, "expense_id": res["expense_id"], "tg": user["tg_user_id"]})
+        for sub in db.due_subscriptions(conn, now):
+            if only_sub_id is not None and sub["id"] != only_sub_id:
+                continue
+            res = db.charge_subscription(conn, sub, now.strftime("%Y-%m-%d %H:%M:%S"))
+            user = db.get_user(conn, sub["user_id"])
+            charged.append({"sub": sub, "expense_id": res["expense_id"], "tg": user["tg_user_id"]})
         return charged
     finally:
         conn.close()
@@ -525,8 +522,8 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         subs = await asyncio.to_thread(show)
         if not subs:
             await update.message.reply_text(
-                'Подписок нет. Добавить: /subs add "Claude Code" 50 USD 23 [коммент]\n'
-                "(имя в кавычках, если в нём есть пробел)"
+                'Подписок нет. Добавить: /subs add "Claude Code" 50 USD [start_date] [коммент]\n'
+                "start_date по умолчанию сегодня; имя в кавычках, если есть пробел."
             )
             return
         lines = ["🔁 Подписки:"]
@@ -534,7 +531,7 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             c = f" · {s['comment']}" if s.get("comment") else ""
             lines.append(
                 f"#{s['id']} {s['name']} — {s['amount']:.2f} {s['currency']},"
-                f" {s['day_of_month']} числа{c}"
+                f" {s['day_of_month']} числа (с {s['start_date']}){c}"
             )
         lines.append("\nУдалить: /subs del <id>")
         await update.message.reply_text("\n".join(lines))
@@ -558,34 +555,47 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Подписка #{sid} удалена.")
         return
 
-    if args[0] == "add" and len(args) >= 5:
+    if args[0] == "add" and len(args) >= 4:
         try:
             amount = _float(args[2])
-            day = int(args[4])
         except ValueError:
             await update.message.reply_text(
-                'Формат: /subs add "<name>" <amount> <currency> <day> [коммент]'
+                'Формат: /subs add "<name>" <amount> <currency> [start_date] [коммент]'
             )
             return
         name = args[1]
         currency = args[3].upper()
-        comment = " ".join(args[5:]) or None
+        rest = args[4:]
+        start_date = datetime.now().strftime("%Y-%m-%d")
+        if rest:
+            try:
+                datetime.strptime(rest[0], "%Y-%m-%d")
+                start_date = rest[0]
+                rest = rest[1:]
+            except ValueError:
+                pass
+        comment = " ".join(rest) or None
 
         def work():
             conn = db.get_conn(config.db_path)
             try:
-                return db.create_subscription(conn, user["id"], name, amount, currency, day, comment)
+                return db.create_subscription(conn, user["id"], name, amount, currency, start_date, comment)
             finally:
                 conn.close()
 
         s = await asyncio.to_thread(work)
-        await update.message.reply_text(
-            f"✅ Подписка #{s['id']} {name}: {amount:.2f} {currency}, {day} числа"
+        charged = await asyncio.to_thread(_charge_due, datetime.now(), None, s["id"])
+        msg = (
+            f"✅ Подписка #{s['id']} {name}: {amount:.2f} {currency},"
+            f" {s['day_of_month']} числа (с {start_date})"
         )
+        if charged:
+            msg += f"\n🔁 Списал первый платёж: −{amount:.2f} {currency}"
+        await update.message.reply_text(msg)
         return
 
     await update.message.reply_text(
-        'Формат: /subs | /subs add "<name>" <amount> <currency> <day> [коммент] | /subs del <id>'
+        'Формат: /subs | /subs add "<name>" <amount> <currency> [start_date] [коммент] | /subs del <id>'
     )
 
 

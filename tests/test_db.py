@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app import db
 
 
@@ -161,13 +163,14 @@ def test_subscription_charge():
     conn = make_conn()
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
     sub = db.create_subscription(
-        conn, user["id"], "Netflix", 12.99, "USD", 13, comment="кино"
+        conn, user["id"], "Netflix", 12.99, "USD", "2026-08-13", comment="кино"
     )
-    due = db.due_subscriptions(conn, "2026-08", 13)
+    assert sub["day_of_month"] == 13
+    due = db.due_subscriptions(conn, datetime(2026, 8, 13, 9, 0, 0))
     assert len(due) == 1
 
     db.charge_subscription(conn, sub, "2026-08-13 09:00:00")
-    assert db.due_subscriptions(conn, "2026-08", 13) == []
+    assert db.due_subscriptions(conn, datetime(2026, 8, 13, 9, 0, 0)) == []
 
     wallet = db.get_or_create_wallet(conn, user["id"], "USD", "spending")
     assert db.wallet_balance(conn, wallet["id"]) == -12.99

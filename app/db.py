@@ -1,4 +1,6 @@
+import calendar
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from app.config import config
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     name TEXT NOT NULL,
     amount NUMERIC NOT NULL,
     currency TEXT NOT NULL,
+    start_date TEXT NOT NULL,
     day_of_month INTEGER NOT NULL CHECK (day_of_month BETWEEN 1 AND 31),
     comment TEXT,
     active INTEGER NOT NULL DEFAULT 1,
@@ -362,17 +365,18 @@ def create_subscription(
     name: str,
     amount: float,
     currency: str,
-    day_of_month: int,
+    start_date: str,
     comment: str | None = None,
 ) -> dict:
     wallet = get_or_create_wallet(conn, user_id, currency, "spending")
+    day_of_month = int(start_date[8:10])
     cur = conn.execute(
         """
         INSERT INTO subscriptions
-            (user_id, wallet_id, name, amount, currency, day_of_month, comment)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (user_id, wallet_id, name, amount, currency, start_date, day_of_month, comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (user_id, wallet["id"], name, amount, currency, day_of_month, comment),
+        (user_id, wallet["id"], name, amount, currency, start_date, day_of_month, comment),
     )
     conn.commit()
     row = conn.execute(
@@ -399,15 +403,23 @@ def deactivate_subscription(conn: sqlite3.Connection, subscription_id: int) -> N
     conn.commit()
 
 
-def due_subscriptions(conn: sqlite3.Connection, ym: str, day: int) -> list[dict]:
+def due_subscriptions(conn: sqlite3.Connection, on_date: datetime) -> list[dict]:
+    ym = on_date.strftime("%Y-%m")
+    day = on_date.day
+    days_in_month = calendar.monthrange(on_date.year, on_date.month)[1]
+    on_str = on_date.strftime("%Y-%m-%d")
     rows = conn.execute(
         """
         SELECT * FROM subscriptions
         WHERE active = 1
-          AND day_of_month = ?
+          AND date(start_date) <= date(?)
           AND (last_charged_ym IS NULL OR last_charged_ym != ?)
+          AND (
+                (day_of_month = ? AND day_of_month <= ?)
+                OR (? = 1 AND day_of_month > ?)
+          )
         """,
-        (day, ym),
+        (on_str, ym, day, days_in_month, day, days_in_month),
     ).fetchall()
     return [dict(r) for r in rows]
 
