@@ -3,6 +3,7 @@ import base64
 import calendar
 import csv
 import io
+import logging
 import tempfile
 from contextlib import AsyncExitStack
 from datetime import datetime
@@ -25,7 +26,10 @@ from app.agent import build_agent
 from app.bot import reports, transcribe
 from app.bot.render import build_preview
 from app.config import config
+from app.logging_setup import setup_logging
 from app.mcp.client import MCPClient
+
+log = logging.getLogger(__name__)
 
 KB = InlineKeyboardMarkup(
     [
@@ -112,6 +116,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     graph = context.application.bot_data["graph"]
     cfg = _cfg(update.effective_chat.id)
     text = update.message.text
+    log.info("text from chat %s: %r", update.effective_chat.id, text)
     if await _pending(graph, cfg):
         if context.chat_data.get("editing"):
             result = await graph.ainvoke(
@@ -127,10 +132,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log.info("voice from chat %s", update.effective_chat.id)
     tg_file = await update.message.voice.get_file()
     path = tempfile.mktemp(suffix=".ogg")
     await tg_file.download_to_drive(path)
     text = await asyncio.to_thread(transcribe.transcribe, path)
+    log.info("transcribed: %r", text)
     graph = context.application.bot_data["graph"]
     cfg = _cfg(update.effective_chat.id)
     await update.message.reply_text(f"🎤 {text}")
@@ -160,6 +167,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     raw = await tg_file.download_as_bytearray()
     uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
     caption = update.message.caption or ""
+    log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
     await _new_expense(update, context, "photo", caption, uri)
 
 
@@ -175,6 +183,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     await q.answer()
     chat_id = update.effective_chat.id
+    log.info("button %r from chat %s", q.data, chat_id)
     await q.edit_message_reply_markup(None)
 
     if q.data.startswith("undo:"):
@@ -538,6 +547,8 @@ async def _post_shutdown(app: Application) -> None:
 
 
 def main() -> None:
+    setup_logging()
+    log.info("starting bot")
     app = (
         Application.builder()
         .token(config.tg_token)

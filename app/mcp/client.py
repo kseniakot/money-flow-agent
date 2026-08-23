@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from contextlib import AsyncExitStack
 
@@ -6,6 +7,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from app.config import config
+
+log = logging.getLogger(__name__)
 
 
 class MCPClient:
@@ -26,6 +29,7 @@ class MCPClient:
             ClientSession(read, write)
         )
         await self.session.initialize()
+        log.info("mcp client connected to server")
 
     async def stop(self) -> None:
         if self._stack is not None:
@@ -36,13 +40,17 @@ class MCPClient:
     async def categories(self) -> list[str]:
         res = await self.session.read_resource("categories://list")
         data = json.loads(res.contents[0].text)
+        log.info("mcp read resource categories://list → %d", len(data))
         return [c["name"] for c in data]
 
     async def save_expenses(self, user_id: int, items: list[dict]) -> dict:
+        log.info("mcp call_tool save_expenses: user=%s items=%d", user_id, len(items))
         out = await self.session.call_tool(
             "save_expenses", {"user_id": user_id, "items": items}
         )
-        return json.loads(out.content[0].text)
+        result = json.loads(out.content[0].text)
+        log.info("mcp save_expenses → %s", result)
+        return result
 
     async def __aenter__(self) -> "MCPClient":
         await self.start()

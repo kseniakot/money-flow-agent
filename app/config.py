@@ -21,6 +21,7 @@ class Config:
     whisper_model: str
     default_currency: str
     nbrb_url: str
+    log_level: str
 
 
 def load_config() -> Config:
@@ -39,6 +40,7 @@ def load_config() -> Config:
         nbrb_url=os.environ.get(
             "NBRB_URL", "https://api.nbrb.by/exrates/rates/{cur}?parammode=2"
         ),
+        log_level=os.environ.get("LOG_LEVEL", "INFO"),
     )
 
 

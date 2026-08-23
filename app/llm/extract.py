@@ -1,10 +1,13 @@
 import json
+import logging
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.llm import prompts
 from app.llm.client import get_llm
+
+log = logging.getLogger(__name__)
 
 _FENCE = re.compile(r"^```(?:json)?|```$", re.MULTILINE)
 
@@ -24,8 +27,12 @@ def _content(text: str, image: str | None):
 
 def _invoke(system: str, text: str, image: str | None) -> dict:
     llm = get_llm()
+    log.info("→ model: input=%r image=%s", text[:120], bool(image))
     resp = llm.invoke([SystemMessage(system), HumanMessage(content=_content(text, image))])
-    return _json(resp.content)
+    log.debug("← model raw: %s", resp.content[:800])
+    data = _json(resp.content)
+    log.info("← model: %d items", len(data.get("items", [])))
+    return data
 
 
 def parse(
@@ -37,6 +44,7 @@ def parse(
     now: str,
     today: str,
 ) -> dict:
+    log.info("parse: source=%s categories=%d", source, len(categories))
     if source in ("text", "voice"):
         data = _invoke(prompts.text_system(categories, default_currency), text, None)
         items = [
@@ -63,6 +71,7 @@ def parse(
 
 
 def revise(items: list[dict], correction: str, categories: list[str]) -> list[dict]:
+    log.info("revise: %r on %d items", correction[:120], len(items))
     system = prompts.revise_system(categories)
     payload = json.dumps({"items": items}, ensure_ascii=False)
     llm = get_llm()
@@ -72,4 +81,6 @@ def revise(items: list[dict], correction: str, categories: list[str]) -> list[di
             HumanMessage(content=f"CURRENT: {payload}\nCORRECTION: {correction}"),
         ]
     )
-    return _json(resp.content)["items"]
+    result = _json(resp.content)["items"]
+    log.info("revised → %d items", len(result))
+    return result
