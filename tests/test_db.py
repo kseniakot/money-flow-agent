@@ -67,7 +67,7 @@ def test_insert_and_read_expense():
     assert r["currency"] == "BYN"
 
 
-def test_get_and_recent_expenses():
+def test_get_expense():
     conn = make_conn()
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
     db.save_expenses(
@@ -87,9 +87,8 @@ def test_get_and_recent_expenses():
             }
         ],
     )
-    recent = db.recent_expenses(conn, user["id"])
-    assert len(recent) == 1
-    eid = recent[0]["id"]
+    rows = db.query_expenses(conn, "2026-08-01", "2026-08-31", user["id"])
+    eid = rows[0]["id"]
     got = db.get_expense(conn, eid, user["id"])
     assert got["product_name"] == "молоко"
     assert got["category_name"] == "молочка"

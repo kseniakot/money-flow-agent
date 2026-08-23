@@ -60,7 +60,7 @@ COMMANDS = [
     BotCommand("subs", "подписки: /subs, add, del"),
     BotCommand("categories", "список категорий"),
     BotCommand("currency", "валюта по умолчанию: /currency USD"),
-    BotCommand("history", "последние покупки с id"),
+    BotCommand("history", "вся история покупок (CSV-файл)"),
     BotCommand("edit", "поправить покупку: /edit <id>"),
     BotCommand("del", "удалить покупку: /del <id>"),
     BotCommand("undo", "удалить последний расход"),
@@ -632,29 +632,37 @@ async def undo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await asyncio.to_thread(_register, update)
-    limit = 10
-    if context.args:
-        try:
-            limit = min(int(context.args[0]), 50)
-        except ValueError:
-            pass
 
     def work():
         conn = db.get_conn(config.db_path)
         try:
-            return db.recent_expenses(conn, user["id"], limit)
+            rows = db.query_expenses(conn, "0001-01-01", "9999-12-31", user["id"])
         finally:
             conn.close()
+        rows.sort(key=lambda r: r["id"], reverse=True)
+        return rows
 
     rows = await asyncio.to_thread(work)
     if not rows:
         await update.message.reply_text("Расходов пока нет.")
         return
-    png = await asyncio.to_thread(reports.build_history_table, rows)
-    await context.bot.send_photo(
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["id", "дата", "продукт", "категория", "кол-во", "единица",
+         "цена_за_ед", "сумма", "валюта", "место", "источник"]
+    )
+    for r in rows:
+        writer.writerow(
+            [r["id"], r["purchased_at"], r["product_name"], r["category_name"],
+             r["qty"], r["unit"], r["unit_price"], r["price"], r["currency"],
+             r["place"] or "", r["source"]]
+        )
+    data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    await context.bot.send_document(
         update.effective_chat.id,
-        png,
-        caption="🧾 Последние покупки\nПоправить: /edit <id> · Удалить: /del <id>",
+        InputFile(data, filename="history.csv"),
+        caption=f"Вся история: {len(rows)} записей. Поправить: /edit <id> · Удалить: /del <id>",
     )
 
 

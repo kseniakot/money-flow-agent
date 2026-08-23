@@ -52,44 +52,6 @@ def build_report_text(rows: list[dict], start: str, end: str) -> str:
     return "\n".join(lines)
 
 
-def build_history_table(rows: list[dict]) -> bytes:
-    headers = ["#", "продукт", "кол-во", "сумма", "дата", "место", "категория"]
-    cells = []
-    for r in rows:
-        cells.append(
-            [
-                str(r["id"]),
-                (r["product_name"] or "")[:24],
-                f"{r['qty']:g} {r['unit']}",
-                f"{r['price']:.2f} {r['currency']}",
-                r["purchased_at"][:10],
-                (r["place"] or "")[:18],
-                (r["category_name"] or "")[:18],
-            ]
-        )
-
-    n = len(cells)
-    fig, ax = plt.subplots(figsize=(11, 0.45 * (n + 1) + 0.4))
-    ax.axis("off")
-    tbl = ax.table(cellText=cells, colLabels=headers, loc="center", cellLoc="left")
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(9)
-    tbl.scale(1, 1.4)
-    for (row, col), cell in tbl.get_celld().items():
-        cell.set_edgecolor("#dbe3e0")
-        if row == 0:
-            cell.set_facecolor("#0f7d6b")
-            cell.set_text_props(color="white", fontweight="bold")
-        elif row % 2 == 0:
-            cell.set_facecolor("#f2f7f5")
-    tbl.auto_set_column_width(col=list(range(len(headers))))
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
-    plt.close(fig)
-    return buf.getvalue()
-
-
 def build_chart(rows: list[dict]) -> bytes:
     cats = _by_category(rows)
     data = [
