@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS expenses (
     source TEXT NOT NULL CHECK (source IN ('text', 'voice', 'receipt', 'subscription', 'bank')),
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
+
+CREATE TABLE IF NOT EXISTS queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    text TEXT,
+    image TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 """
 
 
@@ -456,3 +466,41 @@ def charge_subscription(
     )
     conn.commit()
     return {"expense_id": res["ids"][0], "ym": ym}
+
+
+def enqueue(
+    conn: sqlite3.Connection,
+    chat_id: int,
+    user_id: int,
+    source: str,
+    text: str | None,
+    image: str | None,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO queue (chat_id, user_id, source, text, image) VALUES (?, ?, ?, ?, ?)",
+        (chat_id, user_id, source, text, image),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def queue_front(conn: sqlite3.Connection, chat_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM queue WHERE chat_id = ? ORDER BY id LIMIT 1", (chat_id,)
+    ).fetchone()
+    return _row(row)
+
+
+def queue_delete(conn: sqlite3.Connection, item_id: int) -> None:
+    conn.execute("DELETE FROM queue WHERE id = ?", (item_id,))
+    conn.commit()
+
+
+def queue_count(conn: sqlite3.Connection, chat_id: int) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM queue WHERE chat_id = ?", (chat_id,)
+    ).fetchone()[0]
+
+
+def queue_chats(conn: sqlite3.Connection) -> list[int]:
+    return [r[0] for r in conn.execute("SELECT DISTINCT chat_id FROM queue")]

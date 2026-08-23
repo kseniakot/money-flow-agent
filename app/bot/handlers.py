@@ -89,84 +89,167 @@ def _register(update: Update) -> dict:
         conn.close()
 
 
-def _initial(user: dict, source: str, text: str, image: str | None, cats: list[str]) -> dict:
-    return {
-        "user_id": user["id"],
-        "source": source,
-        "text": text,
-        "image": image,
-        "categories": cats,
-        "default_currency": user["default_currency"],
-        "now": _now(),
-        "today": _today(),
-    }
-
-
 async def _pending(graph, cfg: dict) -> bool:
     state = await graph.aget_state(cfg)
     return bool(state.next)
 
 
-def _is_busy(context: ContextTypes.DEFAULT_TYPE) -> bool:
-    return context.chat_data.get("busy", False)
+def _cd(app, chat_id: int) -> dict:
+    return app.chat_data[chat_id]
 
 
-async def _clear_kb(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    for mid in context.chat_data.pop("kb_msgs", []):
+async def _clear_kb(app, chat_id: int) -> None:
+    cd = _cd(app, chat_id)
+    for mid in cd.pop("kb_msgs", []):
         try:
-            await context.bot.edit_message_reply_markup(chat_id, mid, reply_markup=None)
+            await app.bot.edit_message_reply_markup(chat_id, mid, reply_markup=None)
         except Exception:
             pass
 
 
-async def _send_kb(chat_id: int, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
-    await _clear_kb(chat_id, context)
-    msg = await context.bot.send_message(chat_id, text, reply_markup=KB)
-    context.chat_data.setdefault("kb_msgs", []).append(msg.message_id)
+async def _send_kb(app, chat_id: int, text: str) -> None:
+    await _clear_kb(app, chat_id)
+    msg = await app.bot.send_message(chat_id, text, reply_markup=KB)
+    _cd(app, chat_id).setdefault("kb_msgs", []).append(msg.message_id)
 
 
-async def _present(chat_id: int, context: ContextTypes.DEFAULT_TYPE, result: dict) -> None:
+async def _present(app, chat_id: int, result: dict) -> None:
     if "__interrupt__" in result:
         payload = result["__interrupt__"][0].value
         text = build_preview(payload["items"], payload.get("meta", {}))
-        await _send_kb(chat_id, context, text + "\n\n" + REVIEW_HINT)
+        await _send_kb(app, chat_id, text + "\n\n" + REVIEW_HINT)
     elif result.get("status") == "saved":
-        await _clear_kb(chat_id, context)
+        await _clear_kb(app, chat_id)
         n = result["result"]["inserted"]
-        await context.bot.send_message(chat_id, f"✅ Записал {n} поз.")
+        await app.bot.send_message(chat_id, f"✅ Записал {n} поз.")
     elif result.get("status") == "cancelled":
-        await _clear_kb(chat_id, context)
-        await context.bot.send_message(chat_id, "🗑 Удалено.")
+        await _clear_kb(app, chat_id)
+        await app.bot.send_message(chat_id, "🗑 Удалено.")
 
 
-async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _send_kb(chat_id, context, "Сначала реши, что делать с текущим расходом:")
-
-
-async def _send_processing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> int:
-    msg = await context.bot.send_message(chat_id, "⏳ Обрабатываю…")
-    return msg.message_id
-
-
-async def _delete_msg(chat_id: int, context: ContextTypes.DEFAULT_TYPE, message_id: int) -> None:
+async def _processing(app, chat_id: int, coro):
+    pid = None
     try:
-        await context.bot.delete_message(chat_id, message_id)
+        pid = (await app.bot.send_message(chat_id, "⏳ Обрабатываю…")).message_id
     except Exception:
         pass
+    result = await coro
+    if pid is not None:
+        try:
+            await app.bot.delete_message(chat_id, pid)
+        except Exception:
+            pass
+    return result
 
 
-async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
-    context.chat_data.pop("replace_id", None)
+def _user_currency(user_id: int) -> str:
+    conn = db.get_conn(config.db_path)
+    try:
+        u = db.get_user(conn, user_id)
+        return u["default_currency"] if u else config.default_currency
+    finally:
+        conn.close()
+
+
+def _q_enqueue(chat_id, user_id, source, text, image) -> int:
+    conn = db.get_conn(config.db_path)
+    try:
+        return db.enqueue(conn, chat_id, user_id, source, text, image)
+    finally:
+        conn.close()
+
+
+def _q_front(chat_id):
+    conn = db.get_conn(config.db_path)
+    try:
+        return db.queue_front(conn, chat_id)
+    finally:
+        conn.close()
+
+
+def _q_delete(item_id):
+    conn = db.get_conn(config.db_path)
+    try:
+        db.queue_delete(conn, item_id)
+    finally:
+        conn.close()
+
+
+def _q_count(chat_id):
+    conn = db.get_conn(config.db_path)
+    try:
+        return db.queue_count(conn, chat_id)
+    finally:
+        conn.close()
+
+
+async def _pump(app, chat_id: int) -> None:
+    cd = _cd(app, chat_id)
+    if cd.get("busy"):
+        return
+    graph = app.bot_data["graph"]
+    cfg = _cfg(chat_id)
+    if await _pending(graph, cfg):
+        return
+    front = await asyncio.to_thread(_q_front, chat_id)
+    if front is None:
+        return
+    cd["busy"] = True
+    cd["current_queue_id"] = front["id"]
+    try:
+        cats = await app.bot_data["mcp"].categories()
+        currency = await asyncio.to_thread(_user_currency, front["user_id"])
+        state = {
+            "user_id": front["user_id"],
+            "source": front["source"],
+            "text": front["text"] or "",
+            "image": front["image"],
+            "categories": cats,
+            "default_currency": currency,
+            "now": _now(),
+            "today": _today(),
+        }
+        log.info("pump chat %s: item %s source=%s", chat_id, front["id"], front["source"])
+        result = await _processing(app, chat_id, graph.ainvoke(state, cfg))
+        await _present(app, chat_id, result)
+    finally:
+        cd["busy"] = False
+
+
+async def _handle_input(update, context, source: str, text: str, image: str | None) -> None:
+    app = context.application
     chat_id = update.effective_chat.id
-    graph = context.application.bot_data["graph"]
-    mcp = context.application.bot_data["mcp"]
     user = await asyncio.to_thread(_register, update)
-    cats = await mcp.categories()
-    state = _initial(user, source, text, image, cats)
-    pid = await _send_processing(chat_id, context)
-    result = await graph.ainvoke(state, _cfg(chat_id))
-    await _delete_msg(chat_id, context, pid)
-    await _present(chat_id, context, result)
+    graph = app.bot_data["graph"]
+    cfg = _cfg(chat_id)
+    cd = _cd(app, chat_id)
+
+    if await _pending(graph, cfg):
+        if source == "photo":
+            await asyncio.to_thread(_q_enqueue, chat_id, user["id"], source, text, image)
+            await update.message.reply_text("⏳ Добавила в очередь — обработаю после текущего.")
+            return
+        if cd.get("busy"):
+            await update.message.reply_text("⏳ Секунду, обрабатываю…")
+            return
+        cd["busy"] = True
+        try:
+            await _clear_kb(app, chat_id)
+            result = await _processing(
+                app,
+                chat_id,
+                graph.ainvoke(Command(resume={"action": "revise", "correction": text}), cfg),
+            )
+            await _present(app, chat_id, result)
+        finally:
+            cd["busy"] = False
+        return
+
+    await asyncio.to_thread(_q_enqueue, chat_id, user["id"], source, text, image)
+    n = await asyncio.to_thread(_q_count, chat_id)
+    if n > 1:
+        await update.message.reply_text(f"⏳ В очереди: {n}. Обработаю по очереди.")
+    await _pump(app, chat_id)
 
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -188,77 +271,30 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def _apply_correction(update, context, graph, cfg, text: str) -> None:
-    chat_id = update.effective_chat.id
-    await _clear_kb(chat_id, context)
-    pid = await _send_processing(chat_id, context)
-    result = await graph.ainvoke(
-        Command(resume={"action": "revise", "correction": text}), cfg
-    )
-    await _delete_msg(chat_id, context, pid)
-    await _present(chat_id, context, result)
-
-
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if _is_busy(context):
-        await update.message.reply_text("⏳ Секунду, обрабатываю предыдущее…")
-        return
-    context.chat_data["busy"] = True
-    try:
-        graph = context.application.bot_data["graph"]
-        cfg = _cfg(update.effective_chat.id)
-        text = update.message.text
-        log.info("text from chat %s: %r", update.effective_chat.id, text)
-        if await _pending(graph, cfg):
-            await _apply_correction(update, context, graph, cfg, text)
-        else:
-            await _new_expense(update, context, "text", text, None)
-    finally:
-        context.chat_data["busy"] = False
+    text = update.message.text
+    log.info("text from chat %s: %r", update.effective_chat.id, text)
+    await _handle_input(update, context, "text", text, None)
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if _is_busy(context):
-        await update.message.reply_text("⏳ Секунду, обрабатываю предыдущее…")
-        return
-    context.chat_data["busy"] = True
-    try:
-        log.info("voice from chat %s", update.effective_chat.id)
-        tg_file = await update.message.voice.get_file()
-        path = tempfile.mktemp(suffix=".ogg")
-        await tg_file.download_to_drive(path)
-        text = await asyncio.to_thread(transcribe.transcribe, path)
-        log.info("transcribed: %r", text)
-        graph = context.application.bot_data["graph"]
-        cfg = _cfg(update.effective_chat.id)
-        await update.message.reply_text(f"🎤 {text}")
-        if await _pending(graph, cfg):
-            await _apply_correction(update, context, graph, cfg, text)
-        else:
-            await _new_expense(update, context, "voice", text, None)
-    finally:
-        context.chat_data["busy"] = False
+    log.info("voice from chat %s", update.effective_chat.id)
+    tg_file = await update.message.voice.get_file()
+    path = tempfile.mktemp(suffix=".ogg")
+    await tg_file.download_to_drive(path)
+    text = await asyncio.to_thread(transcribe.transcribe, path)
+    log.info("transcribed: %r", text)
+    await update.message.reply_text(f"🎤 {text}")
+    await _handle_input(update, context, "voice", text, None)
 
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if _is_busy(context):
-        await update.message.reply_text("⏳ Секунду, обрабатываю предыдущее…")
-        return
-    context.chat_data["busy"] = True
-    try:
-        graph = context.application.bot_data["graph"]
-        cfg = _cfg(update.effective_chat.id)
-        if await _pending(graph, cfg):
-            await _remind_pending(update.effective_chat.id, context)
-            return
-        tg_file = await update.message.photo[-1].get_file()
-        raw = await tg_file.download_as_bytearray()
-        uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
-        caption = update.message.caption or ""
-        log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
-        await _new_expense(update, context, "photo", caption, uri)
-    finally:
-        context.chat_data["busy"] = False
+    tg_file = await update.message.photo[-1].get_file()
+    raw = await tg_file.download_as_bytearray()
+    uri = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode()
+    caption = update.message.caption or ""
+    log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
+    await _handle_input(update, context, "photo", caption, uri)
 
 
 def _delete_expense(expense_id: int) -> None:
@@ -270,41 +306,55 @@ def _delete_expense(expense_id: int) -> None:
 
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    app = context.application
     q = update.callback_query
     try:
         await q.answer()
     except Exception:
         pass
     chat_id = update.effective_chat.id
+    cd = _cd(app, chat_id)
     log.info("button %r from chat %s", q.data, chat_id)
 
     if q.data.startswith("undo:"):
-        await q.edit_message_reply_markup(None)
+        try:
+            await q.edit_message_reply_markup(None)
+        except Exception:
+            pass
         await asyncio.to_thread(_delete_expense, int(q.data.split(":")[1]))
-        await context.bot.send_message(chat_id, "↩️ Списание отменено.")
+        await app.bot.send_message(chat_id, "↩️ Списание отменено.")
         return
 
-    if _is_busy(context):
-        await context.bot.send_message(chat_id, "⏳ Секунду, обрабатываю…")
+    if cd.get("busy"):
+        await app.bot.send_message(chat_id, "⏳ Секунду, обрабатываю…")
         return
 
-    await q.edit_message_reply_markup(None)
-    graph = context.application.bot_data["graph"]
+    graph = app.bot_data["graph"]
     cfg = _cfg(chat_id)
     if not await _pending(graph, cfg):
-        await context.bot.send_message(chat_id, "Эта проверка уже завершена.")
+        await app.bot.send_message(chat_id, "Эта проверка уже завершена.")
         return
+    try:
+        await q.edit_message_reply_markup(None)
+    except Exception:
+        pass
 
-    context.chat_data["busy"] = True
+    cd["busy"] = True
     try:
         result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
-        await _present(chat_id, context, result)
-        replace_id = context.chat_data.pop("replace_id", None)
-        if replace_id is not None and result.get("status") in ("saved", "cancelled"):
+        await _present(app, chat_id, result)
+    finally:
+        cd["busy"] = False
+
+    if result.get("status") in ("saved", "cancelled"):
+        qid = cd.pop("current_queue_id", None)
+        if qid is not None:
+            await asyncio.to_thread(_q_delete, qid)
+        replace_id = cd.pop("replace_id", None)
+        if replace_id is not None:
             await asyncio.to_thread(_delete_expense, replace_id)
             log.info("edit: removed original expense %s", replace_id)
-    finally:
-        context.chat_data["busy"] = False
+        await _pump(app, chat_id)
 
 
 def _charge_due(now: datetime, db_path: str | None = None, only_sub_id: int | None = None) -> list[dict]:
@@ -721,14 +771,18 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except ValueError:
         await update.message.reply_text("id числом: /edit 42")
         return
+    app = context.application
     chat_id = update.effective_chat.id
-    graph = context.application.bot_data["graph"]
+    graph = app.bot_data["graph"]
     cfg = _cfg(chat_id)
-    if _is_busy(context):
-        await update.message.reply_text("⏳ Секунду, обрабатываю…")
+    cd = _cd(app, chat_id)
+    if cd.get("busy") or await _pending(graph, cfg):
+        await update.message.reply_text(
+            "⏳ Заверши текущий расход (записать/удалить), потом /edit."
+        )
         return
-    if await _pending(graph, cfg):
-        await _remind_pending(chat_id, context)
+    if await asyncio.to_thread(_q_front, chat_id) is not None:
+        await update.message.reply_text("⏳ Сначала разгреби очередь расходов, потом /edit.")
         return
     user = await asyncio.to_thread(_register, update)
 
@@ -756,8 +810,8 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "place": row["place"],
         "source": row["source"],
     }
-    context.chat_data["replace_id"] = eid
-    cats = await context.application.bot_data["mcp"].categories()
+    cd["replace_id"] = eid
+    cats = await app.bot_data["mcp"].categories()
     state = {
         "user_id": user["id"],
         "source": "edit",
@@ -771,12 +825,12 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     }
     log.info("edit: open expense %s for chat %s", eid, chat_id)
     await update.message.reply_text(f"✏️ Правка #{eid}. Пришли изменения следующим сообщением.")
-    context.chat_data["busy"] = True
+    cd["busy"] = True
     try:
         result = await graph.ainvoke(state, cfg)
-        await _present(chat_id, context, result)
+        await _present(app, chat_id, result)
     finally:
-        context.chat_data["busy"] = False
+        cd["busy"] = False
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -827,6 +881,29 @@ async def _post_init(app: Application) -> None:
     app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
     charged = await asyncio.to_thread(_charge_due, datetime.now())
     await _notify_charged(app.bot, charged)
+    await _resume_queues(app)
+
+
+async def _resume_queues(app: Application) -> None:
+    conn = db.get_conn(config.db_path)
+    try:
+        chats = db.queue_chats(conn)
+    finally:
+        conn.close()
+    graph = app.bot_data["graph"]
+    for chat_id in chats:
+        cfg = _cfg(chat_id)
+        if await _pending(graph, cfg):
+            snap = await graph.aget_state(cfg)
+            items = snap.values.get("items", [])
+            meta = snap.values.get("meta", {})
+            front = await asyncio.to_thread(_q_front, chat_id)
+            if front is not None:
+                _cd(app, chat_id)["current_queue_id"] = front["id"]
+            if items:
+                await _send_kb(app, chat_id, build_preview(items, meta) + "\n\n" + REVIEW_HINT)
+        else:
+            await _pump(app, chat_id)
 
 
 async def _post_shutdown(app: Application) -> None:
