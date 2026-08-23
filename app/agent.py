@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -40,7 +40,9 @@ def build_agent(mcp, checkpointer=None):
         )
         return {"items": r["items"], "meta": r["meta"]}
 
-    async def review_node(state: State):
+    async def review_node(
+        state: State,
+    ) -> Command[Literal["persist", "revise", "__end__"]]:
         resp = interrupt(
             {
                 "items": state["items"],

@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "expenses_agent": "./app/studio_graph.py:graph"
+  }
+}
