@@ -191,14 +191,19 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id, "↩️ Списание отменено.")
         return
 
+    graph = context.application.bot_data["graph"]
+    cfg = _cfg(chat_id)
+    if not await _pending(graph, cfg):
+        await context.bot.send_message(chat_id, "Эта проверка уже завершена.")
+        return
+
     if q.data == "edit":
         context.chat_data["editing"] = True
         await context.bot.send_message(chat_id, "✏️ Пришли правку — текстом или голосом.")
         return
 
     context.chat_data.pop("editing", None)
-    graph = context.application.bot_data["graph"]
-    result = await graph.ainvoke(Command(resume={"action": q.data}), _cfg(chat_id))
+    result = await graph.ainvoke(Command(resume={"action": q.data}), cfg)
     await _present(chat_id, context, result)
 
 
@@ -566,6 +571,17 @@ async def _post_shutdown(app: Application) -> None:
         await stack.aclose()
 
 
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log.exception("handler error", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_chat is not None:
+        try:
+            await context.bot.send_message(
+                update.effective_chat.id, "⚠️ Что-то пошло не так, попробуй ещё раз."
+            )
+        except Exception:
+            pass
+
+
 def main() -> None:
     setup_logging()
     log.info("starting bot")
@@ -588,6 +604,7 @@ def main() -> None:
     app.add_handler(CommandHandler("undo", undo_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
+    app.add_error_handler(on_error)
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
