@@ -47,29 +47,19 @@ def parse(
         ]
         return {"items": items, "meta": {}}
 
-    if source == "receipt":
-        data = _invoke(prompts.receipt_system(categories), text or "Parse this receipt.", image)
-        items = [
-            {
-                **it,
-                "currency": data["currency"],
-                "purchased_at": data["purchased_at"],
-                "place": data["place"],
-                "source": "receipt",
+    if source == "photo":
+        data = _invoke(prompts.photo_system(categories, today), text or "", image)
+        kind = data.get("kind", "receipt")
+        items = [{**it, "source": kind} for it in data["items"]]
+        if kind == "receipt":
+            meta = {
+                "total": data.get("total"),
+                "discount": data.get("discount", 0),
+                "items_sum": round(sum(i.get("price") or 0 for i in items), 2),
             }
-            for it in data["items"]
-        ]
-        meta = {
-            "total": data.get("total"),
-            "discount": data.get("discount", 0),
-            "items_sum": round(sum(i.get("price") or 0 for i in items), 2),
-        }
+        else:
+            meta = {}
         return {"items": items, "meta": meta}
-
-    if source == "bank":
-        data = _invoke(prompts.bank_system(categories, today), text, image)
-        items = [{**it, "source": "bank"} for it in data["items"]]
-        return {"items": items, "meta": {}}
 
     raise ValueError(f"unknown source: {source}")
 

@@ -28,63 +28,41 @@ ASSISTANT: {"items":[
 {"name":"бананы","category":"фрукты","qty":2.15,"unit_price":2.01,"price":4.32,"currency":"BYN"},
 {"name":"яйца","category":"яйца","qty":1,"unit_price":3.90,"price":3.90,"currency":"BYN"}]}"""
 
-RECEIPT_SYSTEM = """The image is a paper receipt. Extract its purchases and assign each item a category.
-
-Available categories: __CATEGORIES__
-Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
-Category granularity: medium. Group by product family, not per single product and not one catch-all. Never put clearly unrelated products in the same category.
-
-Output ONLY JSON:
-{"place","purchased_at","currency","items":[{"name","category","qty","unit_price","price"}],"total","discount"}
-- place: seller name and address as a single string.
-- purchased_at: "YYYY-MM-DD HH:MM:SS".
-- currency: currency code (Belarusian rubles -> "BYN").
-- items:
-  * name: SHORT generic product name, 1-3 words. Drop brand, weight, volume, packaging, fat %.
-    Keep the distinguishing type only when it changes what the product is
-    (масло для волос, льняное масло, греческий йогурт).
-  * qty: quantity from the line. unit_price: price per unit. price: line total before discount.
-- total: amount due after discounts. discount: total receipt discount (0 if none).
-
-# Target output example (store in Grodno; categories: молочная продукция, бытовая химия):
-{"place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87",
-"purchased_at":"2026-07-18 12:51:04",
-"currency":"BYN",
-"items":[
-  {"name":"средство для туалета","category":"бытовая химия","qty":1,"unit_price":9.99,"price":9.99},
-  {"name":"творог","category":"молочная продукция","qty":1,"unit_price":1.91,"price":1.91},
-  {"name":"мороженое","category":"молочная продукция","qty":1,"unit_price":2.01,"price":2.01},
-  {"name":"греческий йогурт","category":"молочная продукция","qty":1,"unit_price":2.25,"price":2.25}],
-"total":16.16,
-"discount":1.20}"""
-
-BANK_SYSTEM = """The image is a bank app screenshot listing card charges: each row has an amount, a merchant, and a date-time. The user's caption lists, in the SAME ORDER, what each charge was for. Pair them by position: amount[i] belongs to product[i].
+PHOTO_SYSTEM = """The image is EITHER a paper receipt OR a screenshot of a bank app listing card charges. Decide which, then extract the purchases and assign each item a category.
 
 Available categories: __CATEGORIES__
 Choose a category from this list when one fits. If none fits, invent a new short lowercase category.
 Category granularity: medium. Group by product family, not per single product and not one catch-all. Never put clearly unrelated products in the same category.
 
 Today is __TODAY__.
-Output ONLY JSON: {"items":[{"name","category","qty","unit_price","price","currency","purchased_at","place"}]}
-- name: product from the caption at the same position (ignore any leading label like "ОЗОН:").
-- qty: 1 unless the caption says otherwise. unit_price: same as price. price: the charged amount from the screenshot row.
-- currency: from the screenshot amount.
-- purchased_at: "YYYY-MM-DD HH:MM:SS" from the row; if the year is missing use the year of the most recent such date on or before today.
-- place: the merchant string from the row.
-If the number of amounts and caption items differ, pair as many as you can in order.
 
-# Example
-Screenshot rows (top to bottom):
-  23.49 BYN | Retail BLR MINSKIY R-N OMBSHOP | 13 авг 20:37
-  9.85 BYN  | Retail BLR MINSKIY R-N OMBSHOP | 13 авг 20:37
-  8.87 BYN  | Retail BLR MINSK OZON | 13 авг 20:37
-  5.22 BYN  | Retail BLR MINSK OZON | 13 авг 20:36
-Caption: ОЗОН: чехол для наушников, отвертки, мусорные пакеты, тряпочка для ноутбука
-ASSISTANT: {"items":[
-{"name":"чехол для наушников","category":"аксессуары","qty":1,"unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
-{"name":"отвертки","category":"инструменты","qty":1,"unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
-{"name":"мусорные пакеты","category":"хозтовары","qty":1,"unit_price":8.87,"price":8.87,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSK OZON"},
-{"name":"тряпочка для ноутбука","category":"хозтовары","qty":1,"unit_price":5.22,"price":5.22,"currency":"BYN","purchased_at":"2026-08-13 20:36:00","place":"Retail BLR MINSK OZON"}]}"""
+Paper receipt: one purchase with many lines. Read place, date-time and currency from the receipt; every item shares them. name = SHORT generic product name (1-3 words); drop brand, weight, volume, packaging, fat %. Report total (amount due after discounts) and discount (0 if none).
+
+Bank screenshot: a list of separate charges; each row has an amount, a merchant and a date-time. The user's caption lists, in the SAME ORDER, what each charge was for; pair by position (ignore any leading label like "ОЗОН:"). Each item takes its own amount (price), merchant (place) and date-time from its row. If a year is missing, use the year of the most recent such date on or before today. total = null, discount = 0.
+
+Common item rules: qty = 1 unless stated; unit_price = price / qty; purchased_at = "YYYY-MM-DD HH:MM:SS".
+
+Output ONLY JSON:
+{"kind":"receipt" or "bank",
+ "items":[{"name","category","qty","unit_price","price","currency","purchased_at","place"}],
+ "total": number or null,
+ "discount": number}
+
+# Example — paper receipt
+{"kind":"receipt",
+ "items":[
+   {"name":"средство для туалета","category":"бытовая химия","qty":1,"unit_price":9.99,"price":9.99,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"},
+   {"name":"творог","category":"молочная продукция","qty":1,"unit_price":1.91,"price":1.91,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"}],
+ "total":11.90,
+ "discount":1.20}
+
+# Example — bank screenshot; caption: ОЗОН: чехол для наушников, отвертки
+{"kind":"bank",
+ "items":[
+   {"name":"чехол для наушников","category":"аксессуары","qty":1,"unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
+   {"name":"отвертки","category":"инструменты","qty":1,"unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"}],
+ "total":null,
+ "discount":0}"""
 
 REVISE_SYSTEM = """You are editing a list of already-parsed expense items according to the user's correction.
 
@@ -111,14 +89,9 @@ def text_system(categories: list[str], default_currency: str) -> str:
     )
 
 
-def receipt_system(categories: list[str]) -> str:
+def photo_system(categories: list[str], today: str) -> str:
     cats = ", ".join(categories) if categories else "(none yet)"
-    return RECEIPT_SYSTEM.replace("__CATEGORIES__", cats)
-
-
-def bank_system(categories: list[str], today: str) -> str:
-    cats = ", ".join(categories) if categories else "(none yet)"
-    return BANK_SYSTEM.replace("__CATEGORIES__", cats).replace("__TODAY__", today)
+    return PHOTO_SYSTEM.replace("__CATEGORIES__", cats).replace("__TODAY__", today)
 
 
 def revise_system(categories: list[str]) -> str:
