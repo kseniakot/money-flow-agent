@@ -5,7 +5,7 @@ Choose a category from this list when one fits. If none fits, invent a new short
 Category granularity: medium. Group by product family (Examples: напитки, техника, уход за волосами, уход за лицом, бытовая химия, товары для дома, овощи, фрукты, ягоды, мясо, колбасные изделия, одежда, крупы, молочные продукты, сладости), not per single product and not one catch-all. Never put clearly unrelated products in the same category.
 
 Output ONLY JSON: {"place", "items":[{"name","category","qty","unit","unit_price","price","currency"}]}
-- place: the shop or website if the text names where it was bought ("на wildberries"/"вайлдберриз" -> "Wildberries", "в евроопте" -> "Евроопт", "озон" -> "Ozon", "магнит" -> "Магнит", "в санте" -> "Санта"); otherwise null. One place for the whole message.
+- place: the shop or website if the text names where it was bought; otherwise null. One place for the whole message. Keep the name in the SAME script the user used, do NOT transliterate — just fix case and drop the preposition: "в короне" -> "Корона" (never "Corona"), "в евроопте" -> "Евроопт", "в санте" -> "Санта". A brand the user says in Latin stays Latin: "на вайлдберриз" -> "Wildberries", "озон" -> "Ozon".
 - name: short product name as written, normalized case.
 - qty: quantity. Set it ONLY from an explicit count ("N штук/шт/штуки" -> N) or weight ("N кг"/"(X за кг)"/"X/кг" -> weight in kg). A bare number with NO count/weight word is a PRICE, never a quantity. Default qty = 1.
 - unit: unit of measure — "шт" (default), "кг" for weight, "уп" for пачка/упаковка, "л"/"мл" for liquids, "г" for grams.
@@ -97,7 +97,7 @@ Keep every field on each item: name, category, qty, unit, unit_price, price, cur
 Recompute price = qty * unit_price whenever quantity or unit price changes.
 Add, remove, or edit items as the correction says; leave unchanged items exactly as they were.
 New items inherit currency, purchased_at and source from the existing items unless the correction says otherwise.
-If the correction names a shop or website ("место вайлдберриз", "купила в озоне"), set "place" on the items accordingly (normalize: "Wildberries", "Ozon", "Евроопт").
+If the correction names a shop ("магазин Корона", "место вайлдберриз"), set "place" on the items. Keep the name in the user's script, do NOT transliterate ("Корона" stays "Корона", never "Corona"); just fix case.
 Output ONLY JSON: {"items":[...]}.
 
 # Example
