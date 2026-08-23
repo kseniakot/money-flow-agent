@@ -1,3 +1,3 @@
-from app.agent import build_agent
+from app.agent import build_graph
 
-graph = build_agent(None)
+graph = build_graph(None).compile()
