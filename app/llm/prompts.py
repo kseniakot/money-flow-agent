@@ -9,12 +9,17 @@ Output ONLY JSON: {"items":[{"name","category","qty","unit_price","price","curre
 - qty: quantity. "N штук/шт" -> N. Weight "(X за кг)" or "X/кг" -> qty is the weight in kg. Default 1.
 - unit_price: price per one unit or per kg.
 - price: line total for the whole position (qty * unit_price).
-- currency: currency code; default "__CURRENCY__" unless the text names another (USD, EUR, PLN, RUB).
+- currency: currency code; default "__CURRENCY__". The words "рубль/рубля/рублей/руб/копеек/коп" mean the DEFAULT currency "__CURRENCY__", NOT a foreign one. Switch currency only on an explicit foreign mention: "долларов"/"usd" -> USD, "евро"/"eur" -> EUR, "злотых"/"pln" -> PLN, "российских рублей"/"рос руб" -> RUB.
 Price logic:
 - "X за один" / "по X" -> unit_price = X, price = qty * X.
 - "TOTAL (X за кг)" -> price = TOTAL, unit_price = X, qty = TOTAL / X.
 - a single plain number -> qty = 1, unit_price = price = that number.
 - no price given -> unit_price = null, price = null.
+Spoken price with rubles and kopecks:
+- "N рубль/рубля/рублей M копеек" -> price = N + M/100 (e.g. "2 рубля 25 копеек" -> 2.25).
+- "рубль M" / "рубль M копеек" -> 1 + M/100 (e.g. "рубль 90" -> 1.90).
+- "N рублей" with no kopecks -> N.00.
+Do not invent products, quantities, brands or attributes that are not in the text.
 Separators: commas, semicolons, newlines. Decimal separator is a dot.
 
 # Example (available categories: молочная продукция, ягоды, фрукты, яйца)
@@ -24,7 +29,14 @@ ASSISTANT: {"items":[
 {"name":"йогурты теос","category":"молочная продукция","qty":3,"unit_price":2.14,"price":6.42,"currency":"BYN"},
 {"name":"творог","category":"молочная продукция","qty":3,"unit_price":1.92,"price":5.76,"currency":"BYN"},
 {"name":"бананы","category":"фрукты","qty":2.15,"unit_price":2.01,"price":4.32,"currency":"BYN"},
-{"name":"яйца","category":"яйца","qty":1,"unit_price":3.90,"price":3.90,"currency":"BYN"}]}"""
+{"name":"яйца","category":"яйца","qty":1,"unit_price":3.90,"price":3.90,"currency":"BYN"}]}
+
+# Example spoken prices (default currency BYN; available categories: молочная продукция, выпечка)
+USER: творог рубль 90, йогурт 2 рубля 25 копеек, хлеб 3 рубля
+ASSISTANT: {"items":[
+{"name":"творог","category":"молочная продукция","qty":1,"unit_price":1.90,"price":1.90,"currency":"BYN"},
+{"name":"йогурт","category":"молочная продукция","qty":1,"unit_price":2.25,"price":2.25,"currency":"BYN"},
+{"name":"хлеб","category":"выпечка","qty":1,"unit_price":3.00,"price":3.00,"currency":"BYN"}]}"""
 
 PHOTO_SYSTEM = """The image is EITHER a paper receipt OR a screenshot of a bank app listing card charges. Decide which, then extract the purchases and assign each item a category.
 
