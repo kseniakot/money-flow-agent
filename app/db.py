@@ -156,7 +156,8 @@ def recent_expenses(
 ) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT e.id, e.qty, e.unit, e.price, e.currency, e.purchased_at, e.place,
+        SELECT e.id, e.qty, e.unit, e.unit_price, e.price, e.currency,
+               e.purchased_at, e.place, e.source,
                p.name AS product_name, c.name AS category_name
         FROM expenses e
         JOIN products p ON p.id = e.product_id

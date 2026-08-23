@@ -626,13 +626,23 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not rows:
         await update.message.reply_text("Расходов пока нет.")
         return
-    lines = ["🧾 Последние покупки:"]
+    src = {"text": "текст", "voice": "голос", "receipt": "чек", "bank": "выписка", "subscription": "подписка"}
+    lines = ["🧾 Последние покупки:", ""]
     for r in rows:
-        place = f" · {r['place']}" if r.get("place") else ""
-        lines.append(
-            f"#{r['id']} {r['product_name']} — {r['price']:.2f} {r['currency']}"
-            f" · {r['purchased_at'][:16]}{place}"
-        )
+        qty = f"{r['qty']:g} {r['unit']}"
+        if r.get("unit_price") is not None:
+            qty += f" × {r['unit_price']:.2f}"
+        parts = [
+            r["category_name"],
+            qty,
+            f"{r['price']:.2f} {r['currency']}",
+            r["purchased_at"][:16],
+        ]
+        if r.get("place"):
+            parts.append(r["place"])
+        parts.append(src.get(r["source"], r["source"]))
+        lines.append(f"#{r['id']} {r['product_name']}")
+        lines.append("   " + " · ".join(parts))
     lines.append("\nПоправить: /edit <id> · Удалить: /del <id>")
     await update.message.reply_text("\n".join(lines))
 
