@@ -7,7 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from app import extract
+from app.llm import extract
 
 
 class State(TypedDict, total=False):

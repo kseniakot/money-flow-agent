@@ -1,7 +1,7 @@
 import asyncio
 
 from app import db
-from app.mcp_client import MCPClient
+from app.mcp.client import MCPClient
 
 
 def test_client_reads_resource_and_saves(tmp_path):

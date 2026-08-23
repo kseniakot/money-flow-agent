@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from app import bot, db
+from app import db
+from app.bot import handlers as bot
 
 
 def setup(tmp_path):

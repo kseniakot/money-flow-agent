@@ -19,7 +19,7 @@ class MCPClient:
     async def start(self) -> None:
         params = StdioServerParameters(
             command="uv",
-            args=["run", "python", "-m", "app.mcp_server"],
+            args=["run", "python", "-m", "app.mcp.server"],
             env={**os.environ, "DB_PATH": self._db_path},
         )
         self._stack = AsyncExitStack()

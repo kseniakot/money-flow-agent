@@ -1,5 +1,5 @@
 from app import db
-from app import mcp_server as m
+from app.mcp import server as m
 
 
 def setup_db(tmp_path):

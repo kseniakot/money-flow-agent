@@ -20,11 +20,12 @@ from telegram.ext import (
     filters,
 )
 
-from app import db, rates, reports, transcribe
+from app import db, rates
 from app.agent import build_agent
+from app.bot import reports, transcribe
+from app.bot.render import build_preview
 from app.config import config
-from app.mcp_client import MCPClient
-from app.render import build_preview
+from app.mcp.client import MCPClient
 
 KB = InlineKeyboardMarkup(
     [

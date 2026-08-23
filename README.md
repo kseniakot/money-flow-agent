@@ -76,14 +76,13 @@ Telegram ─┬─ текст ───────────────┐
                                             ↑ Qwen3-VL (LM Studio)
 ```
 
+- `app/config.py` — настройки из `.env`.
 - `app/db.py` — схема и доступ к БД (raw SQL).
-- `app/mcp_server.py` — MCP-сервер: ресурс категорий + тул `save_expenses`.
-- `app/mcp_client.py` — stdio-клиент к серверу.
-- `app/extract.py`, `app/prompts.py` — вызовы модели (парсинг/правка).
-- `app/agent.py` — граф LangGraph с прерыванием и памятью.
-- `app/bot.py` — Telegram-бот и команды.
 - `app/rates.py` — курсы Нацбанка РБ (in-memory кеш).
-- `app/reports.py` — отчёты и диаграммы.
+- `app/agent.py` — граф LangGraph с прерыванием и памятью.
+- `app/mcp/` — MCP-граница: `server.py` (ресурс категорий + тул `save_expenses`), `client.py` (stdio-клиент).
+- `app/llm/` — слой модели: `client.py` (LM Studio), `prompts.py`, `extract.py` (parse/revise).
+- `app/bot/` — Telegram: `handlers.py` (хендлеры + команды), `render.py`, `reports.py`, `transcribe.py`.
 
 ## Тесты
 
@@ -96,5 +95,5 @@ uv run pytest -q
 Потыкать MCP-сервер в браузере:
 
 ```bash
-uv run mcp dev app/mcp_server.py
+uv run mcp dev app/mcp/server.py
 ```

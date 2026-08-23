@@ -2,7 +2,8 @@ import asyncio
 
 from langgraph.types import Command
 
-from app import agent, extract
+from app import agent
+from app.llm import extract
 
 
 class FakeMCP:

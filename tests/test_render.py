@@ -1,4 +1,4 @@
-from app.render import build_preview
+from app.bot.render import build_preview
 
 
 def it(name, price, currency="BYN", qty=1, unit=None, source="text", place=None, at="2026-08-15 19:40:00", category="прочее"):

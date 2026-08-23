@@ -5,8 +5,8 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app import prompts
-from app.llm import get_llm
+from app.llm import prompts
+from app.llm.client import get_llm
 
 _FENCE = re.compile(r"^```(?:json)?|```$", re.MULTILINE)
 

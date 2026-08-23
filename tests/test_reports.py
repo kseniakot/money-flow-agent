@@ -1,4 +1,5 @@
-from app import rates, reports
+from app import rates
+from app.bot import reports
 
 
 def row(product, category, price, currency="BYN", at="2026-08-13 10:00:00", place=None, qty=1):
