@@ -67,7 +67,11 @@ def build_graph(mcp):
     async def revise_node(state: State):
         log.info("node revise")
         items = await asyncio.to_thread(
-            extract.revise, state["items"], state["correction"], state["categories"]
+            extract.revise,
+            state["items"],
+            state["correction"],
+            state["categories"],
+            state["today"],
         )
         return {"items": items}
 

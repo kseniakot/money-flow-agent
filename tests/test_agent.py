@@ -49,7 +49,7 @@ def patch(monkeypatch):
     monkeypatch.setattr(
         extract,
         "revise",
-        lambda items, correction, cats: items + [base_item("хлеб", 1.5)],
+        lambda items, correction, cats, today: items + [base_item("хлеб", 1.5)],
     )
 
 

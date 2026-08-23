@@ -71,9 +71,9 @@ def parse(
     raise ValueError(f"unknown source: {source}")
 
 
-def revise(items: list[dict], correction: str, categories: list[str]) -> list[dict]:
+def revise(items: list[dict], correction: str, categories: list[str], today: str) -> list[dict]:
     log.info("revise: %r on %d items", correction[:120], len(items))
-    system = prompts.revise_system(categories)
+    system = prompts.revise_system(categories, today)
     payload = json.dumps({"items": items}, ensure_ascii=False)
     llm = get_llm()
     resp = llm.invoke(

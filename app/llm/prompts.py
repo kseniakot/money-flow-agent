@@ -91,21 +91,29 @@ Output ONLY JSON:
 REVISE_SYSTEM = """You are editing a list of already-parsed expense items according to the user's correction.
 
 Available categories: __CATEGORIES__
+Today is __TODAY__.
 Apply the correction to the current items and return the FULL updated list.
 Keep every field on each item: name, category, qty, unit, unit_price, price, currency, purchased_at, place, source.
 "unit" is the measure ("шт", "кг", "уп", "л"); set it from the correction (e.g. "количество 1 кг" -> qty 1, unit "кг").
 Recompute price = qty * unit_price whenever quantity or unit price changes.
+If the correction is or contains a date, set purchased_at on ALL items to it (keep the existing time part, else 00:00:00). "DD-MM-YYYY" and "DD.MM.YYYY" are day-month-year: "21-08-2026" -> "2026-08-21". Also accept "YYYY-MM-DD", "18 июля", "21 августа 2026", and "вчера"/"сегодня"/"позавчера" relative to today.
 Add, remove, or edit items as the correction says; leave unchanged items exactly as they were.
 New items inherit currency, purchased_at and source from the existing items unless the correction says otherwise.
 If the correction names a shop ("магазин Корона", "место вайлдберриз"), set "place" on the items. Keep the name in the user's script, do NOT transliterate ("Корона" stays "Корона", never "Corona"); just fix case.
 Output ONLY JSON: {"items":[...]}.
 
-# Example
-CURRENT: {"items":[{"name":"молоко","category":"молочная продукция","qty":1,"unit_price":1.92,"price":1.92,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}
+# Example — edit price and add item
+CURRENT: {"items":[{"name":"молоко","category":"молочная продукция","qty":1,"unit":"шт","unit_price":1.92,"price":1.92,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}
 CORRECTION: молоко не 1.92 а 2.10, добавь хлеб 1.50
 ASSISTANT: {"items":[
 {"name":"молоко","category":"молочная продукция","qty":1,"unit":"шт","unit_price":2.10,"price":2.10,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"},
-{"name":"хлеб","category":"выпечка","qty":1,"unit":"шт","unit_price":1.50,"price":1.50,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}"""
+{"name":"хлеб","category":"выпечка","qty":1,"unit":"шт","unit_price":1.50,"price":1.50,"currency":"BYN","purchased_at":"2026-08-15 19:40:00","place":null,"source":"text"}]}
+
+# Example — date correction (DD-MM-YYYY -> YYYY-MM-DD, keep the time)
+CURRENT: {"items":[{"name":"кофе","category":"напитки","qty":1,"unit":"шт","unit_price":3.00,"price":3.00,"currency":"BYN","purchased_at":"2021-08-23 18:55:38","place":"Корона","source":"voice"}]}
+CORRECTION: 21-08-2026
+ASSISTANT: {"items":[
+{"name":"кофе","category":"напитки","qty":1,"unit":"шт","unit_price":3.00,"price":3.00,"currency":"BYN","purchased_at":"2026-08-21 18:55:38","place":"Корона","source":"voice"}]}"""
 
 
 def text_system(categories: list[str], default_currency: str) -> str:
@@ -120,6 +128,6 @@ def photo_system(categories: list[str], today: str) -> str:
     return PHOTO_SYSTEM.replace("__CATEGORIES__", cats).replace("__TODAY__", today)
 
 
-def revise_system(categories: list[str]) -> str:
+def revise_system(categories: list[str], today: str) -> str:
     cats = ", ".join(categories) if categories else "(none yet)"
-    return REVISE_SYSTEM.replace("__CATEGORIES__", cats)
+    return REVISE_SYSTEM.replace("__CATEGORIES__", cats).replace("__TODAY__", today)
