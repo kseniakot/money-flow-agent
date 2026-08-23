@@ -43,7 +43,7 @@ def build_graph(mcp):
             state["today"],
         )
         log.info("node parse → %d items", len(r["items"]))
-        return {"items": r["items"], "meta": r["meta"]}
+        return {"items": r["items"], "meta": r["meta"], "image": None}
 
     async def review_node(
         state: State,
