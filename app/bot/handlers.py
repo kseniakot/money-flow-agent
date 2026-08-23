@@ -385,8 +385,8 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             conn.close()
 
     rows = await asyncio.to_thread(work)
-    await update.message.reply_text(reports.build_report_text(rows, start, end))
     if not rows:
+        await update.message.reply_text(f"За {start} — {end} расходов нет.")
         return
     chat_id = update.effective_chat.id
     by_cat = sorted(rows, key=lambda r: (r["category_name"], r["purchased_at"]))
@@ -408,22 +408,31 @@ async def wallets_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         finally:
             conn.close()
         total = 0.0
+        failed = False
         rendered = []
         for w in ws:
-            usd = rates.to_usd(w["balance"], w["currency"])
-            total += usd
+            try:
+                usd = rates.to_usd(w["balance"], w["currency"])
+                total += usd
+            except Exception:
+                usd = None
+                failed = True
             rendered.append((w, usd))
-        return rendered, total
+        return rendered, total, failed
 
-    rendered, total = await asyncio.to_thread(work)
+    rendered, total, failed = await asyncio.to_thread(work)
     if not rendered:
         await update.message.reply_text("Кошельков пока нет.")
         return
     lines = ["💰 Кошельки:"]
     for w, usd in rendered:
         tag = "🐷" if w["kind"] == "savings" else "💳"
-        lines.append(f"{tag} {w['currency']} ({w['kind']}): {w['balance']:.2f} ≈ {usd:.2f}$")
-    lines.append(f"─────\nВсего ≈ {total:.2f}$")
+        usd_str = f"≈ {usd:.2f}$" if usd is not None else "≈ ?$"
+        lines.append(f"{tag} {w['currency']} ({w['kind']}): {w['balance']:.2f} {usd_str}")
+    suffix = " (без недоступных)" if failed else ""
+    lines.append(f"─────\nВсего ≈ {total:.2f}${suffix}")
+    if failed:
+        lines.append("⚠️ Курс НБ РБ недоступен для части валют — итог в USD неполный.")
     await update.message.reply_text("\n".join(lines))
 
 
@@ -586,7 +595,8 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = args[1]
         currency = args[3].upper()
         rest = args[4:]
-        start_date = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%Y-%m-%d")
+        start_date = today
         if rest:
             try:
                 datetime.strptime(rest[0], "%Y-%m-%d")
@@ -594,6 +604,12 @@ async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 rest = rest[1:]
             except ValueError:
                 pass
+        if start_date < today:
+            await update.message.reply_text(
+                f"⚠️ Дата старта не должна быть раньше сегодня ({today}). "
+                "Прошлые месяцы не начисляются задним числом."
+            )
+            return
         comment = " ".join(rest) or None
 
         def work():
