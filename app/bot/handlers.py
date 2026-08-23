@@ -20,10 +20,12 @@ from telegram import (
 )
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -789,6 +791,11 @@ async def _post_shutdown(app: Application) -> None:
         await stack.aclose()
 
 
+async def _ignore_edited(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.edited_message is not None:
+        raise ApplicationHandlerStop
+
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("handler error", exc_info=context.error)
     if isinstance(update, Update) and update.effective_chat is not None:
@@ -811,6 +818,7 @@ def main() -> None:
         .post_shutdown(_post_shutdown)
         .build()
     )
+    app.add_handler(TypeHandler(Update, _ignore_edited), group=-1)
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("report", report_cmd))
     app.add_handler(CommandHandler("wallets", wallets_cmd))
