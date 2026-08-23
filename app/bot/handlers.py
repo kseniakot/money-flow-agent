@@ -31,6 +31,7 @@ KB = InlineKeyboardMarkup(
     [
         [
             InlineKeyboardButton("✅ записать", callback_data="approve"),
+            InlineKeyboardButton("✏️ править", callback_data="edit"),
             InlineKeyboardButton("❌ отмена", callback_data="cancel"),
         ]
     ]
@@ -89,6 +90,7 @@ async def _present(chat_id: int, context: ContextTypes.DEFAULT_TYPE, result: dic
 
 
 async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
+    context.chat_data.pop("editing", None)
     graph = context.application.bot_data["graph"]
     mcp = context.application.bot_data["mcp"]
     user = await asyncio.to_thread(_register, update)
@@ -111,10 +113,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cfg = _cfg(update.effective_chat.id)
     text = update.message.text
     if await _pending(graph, cfg):
-        result = await graph.ainvoke(
-            Command(resume={"action": "revise", "correction": text}), cfg
-        )
-        await _present(update.effective_chat.id, context, result)
+        if context.chat_data.get("editing"):
+            result = await graph.ainvoke(
+                Command(resume={"action": "revise", "correction": text}), cfg
+            )
+            await _present(update.effective_chat.id, context, result)
+        else:
+            await update.message.reply_text(
+                "Идёт проверка. Нажми ✏️ править, чтобы поправить, либо ✅/❌."
+            )
     else:
         await _new_expense(update, context, "text", text, None)
 
@@ -128,10 +135,15 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cfg = _cfg(update.effective_chat.id)
     await update.message.reply_text(f"🎤 {text}")
     if await _pending(graph, cfg):
-        result = await graph.ainvoke(
-            Command(resume={"action": "revise", "correction": text}), cfg
-        )
-        await _present(update.effective_chat.id, context, result)
+        if context.chat_data.get("editing"):
+            result = await graph.ainvoke(
+                Command(resume={"action": "revise", "correction": text}), cfg
+            )
+            await _present(update.effective_chat.id, context, result)
+        else:
+            await update.message.reply_text(
+                "Идёт проверка. Нажми ✏️ править, чтобы поправить голосом, либо ✅/❌."
+            )
     else:
         await _new_expense(update, context, "voice", text, None)
 
@@ -170,6 +182,12 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id, "↩️ Списание отменено.")
         return
 
+    if q.data == "edit":
+        context.chat_data["editing"] = True
+        await context.bot.send_message(chat_id, "✏️ Пришли правку — текстом или голосом.")
+        return
+
+    context.chat_data.pop("editing", None)
     graph = context.application.bot_data["graph"]
     result = await graph.ainvoke(Command(resume={"action": q.data}), _cfg(chat_id))
     await _present(chat_id, context, result)
