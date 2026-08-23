@@ -108,24 +108,36 @@ def _is_busy(context: ContextTypes.DEFAULT_TYPE) -> bool:
     return context.chat_data.get("busy", False)
 
 
+async def _clear_kb(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    for mid in context.chat_data.pop("kb_msgs", []):
+        try:
+            await context.bot.edit_message_reply_markup(chat_id, mid, reply_markup=None)
+        except Exception:
+            pass
+
+
+async def _send_kb(chat_id: int, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    await _clear_kb(chat_id, context)
+    msg = await context.bot.send_message(chat_id, text, reply_markup=KB)
+    context.chat_data.setdefault("kb_msgs", []).append(msg.message_id)
+
+
 async def _present(chat_id: int, context: ContextTypes.DEFAULT_TYPE, result: dict) -> None:
     if "__interrupt__" in result:
         payload = result["__interrupt__"][0].value
         text = build_preview(payload["items"], payload.get("meta", {}))
-        await context.bot.send_message(chat_id, text, reply_markup=KB)
+        await _send_kb(chat_id, context, text)
     elif result.get("status") == "saved":
+        await _clear_kb(chat_id, context)
         n = result["result"]["inserted"]
         await context.bot.send_message(chat_id, f"✅ Записал {n} поз.")
     elif result.get("status") == "cancelled":
+        await _clear_kb(chat_id, context)
         await context.bot.send_message(chat_id, "Отменено.")
 
 
 async def _remind_pending(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await context.bot.send_message(
-        chat_id,
-        "Сначала реши, что делать с текущим расходом:",
-        reply_markup=KB,
-    )
+    await _send_kb(chat_id, context, "Сначала реши, что делать с текущим расходом:")
 
 
 async def _new_expense(update, context, source: str, text: str, image: str | None) -> None:
