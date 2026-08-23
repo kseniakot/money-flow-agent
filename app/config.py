@@ -18,6 +18,7 @@ class Config:
     lm_model: str
     lm_api_key: str
     db_path: Path
+    checkpoint_path: Path
     whisper_bin: str
     whisper_model: str
     default_currency: str
@@ -31,6 +32,9 @@ def load_config() -> Config:
         lm_model=os.environ.get("LM_MODEL", "qwen3-vl-8b-instruct-mlx"),
         lm_api_key=os.environ.get("LM_API_KEY", "lm-studio"),
         db_path=Path(os.environ.get("DB_PATH", str(ROOT / "expenses.sqlite"))),
+        checkpoint_path=Path(
+            os.environ.get("CHECKPOINT_PATH", str(ROOT / "checkpoints.sqlite"))
+        ),
         whisper_bin=os.environ.get("WHISPER_BIN", "whisper"),
         whisper_model=os.environ.get("WHISPER_MODEL", "medium"),
         default_currency=os.environ.get("DEFAULT_CURRENCY", "BYN"),

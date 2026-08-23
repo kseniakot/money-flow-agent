@@ -6,9 +6,11 @@ import calendar
 import csv
 import io
 import tempfile
+from contextlib import AsyncExitStack
 from datetime import datetime
 from datetime import time as dtime
 
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.ext import (
@@ -499,8 +501,14 @@ async def _post_init(app: Application) -> None:
     conn.close()
     mcp = MCPClient()
     await mcp.start()
+    stack = AsyncExitStack()
+    saver = await stack.enter_async_context(
+        AsyncSqliteSaver.from_conn_string(str(config.checkpoint_path))
+    )
+    await saver.setup()
     app.bot_data["mcp"] = mcp
-    app.bot_data["graph"] = build_agent(mcp)
+    app.bot_data["stack"] = stack
+    app.bot_data["graph"] = build_agent(mcp, saver)
     app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
 
 
@@ -508,6 +516,9 @@ async def _post_shutdown(app: Application) -> None:
     mcp = app.bot_data.get("mcp")
     if mcp is not None:
         await mcp.stop()
+    stack = app.bot_data.get("stack")
+    if stack is not None:
+        await stack.aclose()
 
 
 def main() -> None:

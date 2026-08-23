@@ -26,7 +26,7 @@ class State(TypedDict, total=False):
     result: dict
 
 
-def build_agent(mcp):
+def build_agent(mcp, checkpointer=None):
     async def parse_node(state: State):
         r = await asyncio.to_thread(
             extract.parse,
@@ -74,4 +74,4 @@ def build_agent(mcp):
     b.add_edge("parse", "review")
     b.add_edge("revise", "review")
     b.add_edge("persist", END)
-    return b.compile(checkpointer=MemorySaver())
+    return b.compile(checkpointer=checkpointer or MemorySaver())
