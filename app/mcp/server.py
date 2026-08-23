@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from mcp.server.mcpserver import MCPServer
 
 from app import db

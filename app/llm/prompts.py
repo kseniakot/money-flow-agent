@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 TEXT_SYSTEM = """You are an expense parser. From the user's free-form text, extract purchase items and assign each a category.
 
 Available categories: __CATEGORIES__

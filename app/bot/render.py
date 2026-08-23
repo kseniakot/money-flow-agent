@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 
 def _money(x) -> str:
     return f"{x:.2f}" if x is not None else "?"

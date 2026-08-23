@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from datetime import date as date_cls
 from urllib.error import URLError
