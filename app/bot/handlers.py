@@ -6,7 +6,7 @@ import logging
 import shlex
 import tempfile
 from contextlib import AsyncExitStack
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import time as dtime
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -893,9 +893,11 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def _backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    await asyncio.to_thread(
-        backup.backup_db, config.db_path, config.backup_dir, config.backup_keep
-    )
+    age = await asyncio.to_thread(backup.newest_backup_age_hours, config.backup_dir)
+    if age is None or age >= 20:
+        await asyncio.to_thread(
+            backup.backup_db, config.db_path, config.backup_dir, config.backup_keep
+        )
 
 
 async def _post_init(app: Application) -> None:
@@ -917,7 +919,9 @@ async def _post_init(app: Application) -> None:
     app.bot_data["graph"] = build_agent(mcp, saver)
     await app.bot.set_my_commands(COMMANDS)
     app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
-    app.job_queue.run_daily(_backup_job, time=dtime(hour=3, minute=0))
+    app.job_queue.run_repeating(
+        _backup_job, interval=timedelta(hours=6), first=timedelta(hours=6)
+    )
     charged = await asyncio.to_thread(_charge_due, datetime.now())
     await _notify_charged(app.bot, charged)
     await _resume_queues(app)

@@ -1,9 +1,17 @@
 import logging
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+def newest_backup_age_hours(backup_dir: Path) -> float | None:
+    files = sorted(Path(backup_dir).glob("expenses_*.sqlite"))
+    if not files:
+        return None
+    return (time.time() - files[-1].stat().st_mtime) / 3600
 
 
 def _has_data(db_path: Path) -> bool:
