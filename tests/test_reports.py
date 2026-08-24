@@ -43,9 +43,10 @@ def test_report_xlsx_groups_items_under_category():
     ws = load_workbook(io.BytesIO(data)).active
     assert ws.sheet_properties.outlinePr.summaryBelow is False
     col_a = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)]
-    assert "молочка" in col_a and "техника" in col_a
+    assert "молочка" in col_a and "техника" in col_a  # category rows
+    assert "молоко" in col_a and "масло" in col_a  # product rows
     levels = [ws.row_dimensions[r].outline_level for r in range(1, ws.max_row + 1)]
-    assert 1 in levels
+    assert 1 in levels and 2 in levels  # product and purchase grouping
 
 
 def test_expenses_csv_has_bom_and_header():

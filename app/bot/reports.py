@@ -22,34 +22,47 @@ def build_report_xlsx(rows: list[dict]) -> bytes:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="0F7D6B")
 
+    def _total_str(items):
+        totals: dict[str, float] = defaultdict(float)
+        for r in items:
+            totals[r["currency"]] += r["price"] or 0
+        return ", ".join(f"{v:.2f} {cur}" for cur, v in totals.items())
+
     cats: dict[str, list] = {}
     for r in rows:
         cats.setdefault(r["category_name"], []).append(r)
 
     for cat in sorted(cats):
         items = cats[cat]
-        totals: dict[str, float] = defaultdict(float)
-        for r in items:
-            totals[r["currency"]] += r["price"] or 0
-        total_str = ", ".join(f"{v:.2f} {cur}" for cur, v in totals.items())
-
-        ws.append([cat, "", "", "", "", total_str, ""])
+        ws.append([cat, "", "", "", "", _total_str(items), ""])
         for cell in ws[ws.max_row]:
             cell.font = Font(bold=True)
+            cell.fill = PatternFill("solid", fgColor="E2F0EC")
 
-        for r in sorted(items, key=lambda x: x["purchased_at"]):
-            ws.append(
-                [
-                    r["product_name"],
-                    r["purchased_at"][:16],
-                    r["place"] or "",
-                    f"{r['qty']:g} {r['unit']}",
-                    r["unit_price"],
-                    r["price"],
-                    r["currency"],
-                ]
-            )
+        products: dict[str, list] = {}
+        for r in items:
+            products.setdefault(r["product_name"], []).append(r)
+
+        for prod in sorted(products):
+            pitems = products[prod]
+            ws.append([prod, "", "", "", "", _total_str(pitems), ""])
             ws.row_dimensions[ws.max_row].outline_level = 1
+            for cell in ws[ws.max_row]:
+                cell.font = Font(bold=True, italic=True)
+
+            for r in sorted(pitems, key=lambda x: x["purchased_at"]):
+                ws.append(
+                    [
+                        "",
+                        r["purchased_at"][:16],
+                        r["place"] or "",
+                        f"{r['qty']:g} {r['unit']}",
+                        r["unit_price"],
+                        r["price"],
+                        r["currency"],
+                    ]
+                )
+                ws.row_dimensions[ws.max_row].outline_level = 2
 
     for col, width in zip("ABCDEFG", [28, 18, 20, 12, 10, 10, 8]):
         ws.column_dimensions[col].width = width
