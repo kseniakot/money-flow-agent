@@ -7,7 +7,6 @@ import shlex
 import tempfile
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta
-from datetime import time as dtime
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
@@ -918,7 +917,9 @@ async def _post_init(app: Application) -> None:
     app.bot_data["stack"] = stack
     app.bot_data["graph"] = build_agent(mcp, saver)
     await app.bot.set_my_commands(COMMANDS)
-    app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
+    app.job_queue.run_repeating(
+        _subscription_job, interval=timedelta(hours=6), first=timedelta(hours=6)
+    )
     app.job_queue.run_repeating(
         _backup_job, interval=timedelta(hours=6), first=timedelta(hours=6)
     )
