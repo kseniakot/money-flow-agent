@@ -29,7 +29,7 @@ from telegram.ext import (
     filters,
 )
 
-from app import db, rates
+from app import backup, db, rates
 from app.agent import build_agent
 from app.bot import reports, transcribe
 from app.bot.render import build_preview
@@ -892,10 +892,19 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+async def _backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await asyncio.to_thread(
+        backup.backup_db, config.db_path, config.backup_dir, config.backup_keep
+    )
+
+
 async def _post_init(app: Application) -> None:
     conn = db.get_conn(config.db_path)
     db.init_db(conn)
     conn.close()
+    await asyncio.to_thread(
+        backup.backup_db, config.db_path, config.backup_dir, config.backup_keep
+    )
     mcp = MCPClient()
     await mcp.start()
     stack = AsyncExitStack()
@@ -908,6 +917,7 @@ async def _post_init(app: Application) -> None:
     app.bot_data["graph"] = build_agent(mcp, saver)
     await app.bot.set_my_commands(COMMANDS)
     app.job_queue.run_daily(_subscription_job, time=dtime(hour=9, minute=0))
+    app.job_queue.run_daily(_backup_job, time=dtime(hour=3, minute=0))
     charged = await asyncio.to_thread(_charge_due, datetime.now())
     await _notify_charged(app.bot, charged)
     await _resume_queues(app)

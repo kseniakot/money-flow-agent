@@ -19,3 +19,6 @@ tmp/
 
 # os
 .DS_Store
+
+# db backups
+backups/
