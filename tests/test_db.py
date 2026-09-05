@@ -188,6 +188,20 @@ def test_exchange_moves_between_wallets():
     assert r["to_balance"] == 128.0
 
 
+def test_wallet_ledger_mixes_movements_and_expenses():
+    conn = make_conn()
+    user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
+    w = db.get_or_create_wallet(conn, user["id"], "BYN", "spending")
+    db.add_movement(conn, w["id"], "deposit", 100.0, "зарплата", "2026-08-05 09:00:00")
+    seed_expense(conn, user["id"], 30.0, "BYN")
+    db.add_movement(conn, w["id"], "deposit", 5.0, "вне периода", "2026-09-05 09:00:00")
+    rows = db.wallet_ledger(conn, user["id"], "BYN", "spending", "2026-08-01", "2026-08-31")
+    assert len(rows) == 2
+    assert rows[0]["amount"] == 100.0
+    assert rows[1]["amount"] == -30.0
+    assert sum(r["amount"] for r in rows) == 70.0
+
+
 def test_list_exchanges_returns_both_legs():
     conn = make_conn()
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")

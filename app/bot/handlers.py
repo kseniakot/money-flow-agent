@@ -56,6 +56,8 @@ COMMANDS = [
     BotCommand("deposit", "пополнить кошелёк: /deposit 100 USD"),
     BotCommand("savings", "копилка: /savings 100 USD (без аргументов — показать)"),
     BotCommand("correct", "выставить баланс: /correct USD 90 [savings]"),
+    BotCommand("exchange", "обмен валют: /exchange 100 USD BYN 3.2 (без аргументов — история)"),
+    BotCommand("ledger", "выписка по кошельку: /ledger USD 2026-08-01 2026-08-31 [savings]"),
     BotCommand("subs", "подписки: /subs, add, del"),
     BotCommand("categories", "список категорий"),
     BotCommand("currency", "валюта по умолчанию: /currency USD"),
@@ -301,6 +303,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/savings — копилка\n"
         "/correct — поправить баланс\n"
         "/exchange — обмен валюты (без аргументов история)\n"
+        "/ledger — выписка по кошельку за период\n"
         "/subs — подписки\n"
         "/categories — категории\n"
         "/currency — валюта по умолчанию\n"
@@ -659,6 +662,37 @@ async def exchange_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         f"💱 {amount:.2f} {from_currency} → {r['received']:.2f} {to_currency} @{rate:g}\n"
         f"{from_currency}: {r['from_balance']:.2f} · {to_currency}: {r['to_balance']:.2f}"
     )
+
+
+async def ledger_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 3:
+        await update.message.reply_text("Формат: /ledger USD 2026-08-01 2026-08-31 [savings]")
+        return
+    currency = args[0].upper()
+    start, end = args[1], args[2]
+    kind = "savings" if len(args) > 3 and args[3].lower() == "savings" else "spending"
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            w = db.get_or_create_wallet(conn, user["id"], currency, kind)
+            rows = db.wallet_ledger(conn, user["id"], currency, kind, start, end)
+            return rows, db.wallet_balance(conn, w["id"])
+        finally:
+            conn.close()
+
+    rows, balance = await asyncio.to_thread(work)
+    if not rows:
+        await update.message.reply_text(f"По {currency} ({kind}) за {start} — {end} движений нет.")
+        return
+    net = sum(r["amount"] for r in rows)
+    lines = [f"📒 {currency} ({kind}) · {start} — {end}", ""]
+    lines += [f"{r['at'][5:16]}  {r['amount']:+.2f}  {r['label']}" for r in rows]
+    lines.append("─────")
+    lines.append(f"Итого за период: {net:+.2f} {currency} · баланс сейчас: {balance:.2f}")
+    await update.message.reply_text("\n".join(lines))
 
 
 async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1051,6 +1085,7 @@ def main() -> None:
     app.add_handler(CommandHandler("savings", savings_cmd))
     app.add_handler(CommandHandler("correct", correct_cmd))
     app.add_handler(CommandHandler("exchange", exchange_cmd))
+    app.add_handler(CommandHandler("ledger", ledger_cmd))
     app.add_handler(CommandHandler("subs", subs_cmd))
     app.add_handler(CommandHandler("categories", categories_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))

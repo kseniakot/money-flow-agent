@@ -400,6 +400,36 @@ def exchange(
     }
 
 
+def wallet_ledger(
+    conn: sqlite3.Connection,
+    user_id: int,
+    currency: str,
+    kind: str,
+    start: str,
+    end: str,
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT m.occurred_at AS at, m.amount AS amount, COALESCE(m.comment, m.kind) AS label
+        FROM wallet_movements m
+        JOIN wallets w ON w.id = m.wallet_id
+        WHERE w.user_id = ? AND w.currency = ? AND w.kind = ?
+          AND date(m.occurred_at) BETWEEN date(?) AND date(?)
+        UNION ALL
+        SELECT e.purchased_at AS at, -e.price AS amount,
+               p.name || COALESCE(' · ' || e.place, '') AS label
+        FROM expenses e
+        JOIN wallets w ON w.id = e.wallet_id
+        JOIN products p ON p.id = e.product_id
+        WHERE w.user_id = ? AND w.currency = ? AND w.kind = ?
+          AND date(e.purchased_at) BETWEEN date(?) AND date(?)
+        ORDER BY at
+        """,
+        (user_id, currency, kind, start, end, user_id, currency, kind, start, end),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def list_exchanges(conn: sqlite3.Connection, user_id: int, limit: int = 20) -> list[dict]:
     rows = conn.execute(
         """
