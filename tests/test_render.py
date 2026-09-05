@@ -47,6 +47,15 @@ def test_receipt_checksum_warns_on_mismatch():
     assert "🧾 Чек · Shop" in out
 
 
+def test_receipt_discount_shown_and_net_checksum():
+    item = it("средство", 8.79, source="receipt", place="Grin", at="2026-07-18 12:51:04")
+    item["unit_price"] = 9.99
+    item["discount"] = 1.20
+    out = build_preview([item], {"total": 8.79, "discount": 1.20})
+    assert "(−1.20 скидка)" in out
+    assert "⚠️" not in out
+
+
 def test_bank_shows_place_per_line():
     items = [it("отвертки", 9.85, source="bank", place="OZON", at="2026-08-13 20:37:00")]
     out = build_preview(items, {})

@@ -48,6 +48,8 @@ def build_preview(items: list[dict], meta: dict) -> str:
                 chunk += f" × {_money(it['unit_price'])}"
             line += f" · {chunk}"
         line += f" — {it['category']}"
+        if it.get("discount"):
+            line += f" (−{_money(it['discount'])} скидка)"
         if source == "bank":
             line += f"\n   · {it.get('purchased_at', '')} · {it.get('place', '')}"
         lines.append(line)
@@ -58,13 +60,10 @@ def build_preview(items: list[dict], meta: dict) -> str:
 
     if source == "receipt" and meta.get("total") is not None:
         items_sum = round(sum((it.get("price") or 0) for it in items), 2)
-        discount = meta.get("discount", 0)
         total = meta["total"]
-        expected = round(items_sum - discount, 2)
-        if abs(expected - total) > 0.01:
+        if abs(items_sum - total) > 0.01:
             lines.append(
-                f"⚠️ суммы не сходятся: позиции {items_sum} − скидка {discount}"
-                f" = {expected}, а в чеке {total}"
+                f"⚠️ суммы не сходятся: позиции {items_sum}, а к оплате {total}"
             )
 
     return "\n".join(lines)

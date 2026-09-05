@@ -832,6 +832,7 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "qty": row["qty"],
         "unit": row["unit"],
         "unit_price": row["unit_price"],
+        "discount": row["discount"],
         "price": row["price"],
         "currency": row["currency"],
         "purchased_at": row["purchased_at"],

@@ -40,7 +40,7 @@ def _fix_prices(items: list[dict]) -> list[dict]:
         qty = it.get("qty")
         unit_price = it.get("unit_price")
         if qty is not None and unit_price is not None:
-            it["price"] = round(qty * unit_price, 2)
+            it["price"] = round(qty * unit_price - (it.get("discount") or 0), 2)
     return items
 
 

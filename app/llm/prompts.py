@@ -64,27 +64,27 @@ Paper receipt: one purchase with many lines. Read place, date-time and currency 
 
 Bank screenshot: a list of separate charges; each row has an amount, a merchant and a date-time. The user's caption lists, in the SAME ORDER, what each charge was for; pair by position (ignore any leading label like "ОЗОН:"). Each item takes its own amount (price), merchant (place) and date-time from its row. If a year is missing, use the year of the most recent such date on or before today. total = null, discount = 0.
 
-Common item rules: qty = 1 unless stated; unit = "шт" (default), "кг" for weight, "уп" for packs, "л"/"мл" for liquids; unit_price = price / qty; purchased_at = "YYYY-MM-DD HH:MM:SS".
+Common item rules: qty = 1 unless stated; unit = "шт" (default), "кг" for weight, "уп" for packs, "л"/"мл" for liquids; unit_price = printed unit price. discount = the per-item discount if a "Скидка" line appears under that item (else 0). price = unit_price * qty - discount (the amount actually paid for the line). purchased_at = "YYYY-MM-DD HH:MM:SS". total = amount due after all discounts (ИТОГО К ОПЛАТЕ) and must equal the sum of item prices.
 
 Output ONLY JSON:
 {"kind":"receipt" or "bank",
- "items":[{"name","category","qty","unit","unit_price","price","currency","purchased_at","place"}],
+ "items":[{"name","category","qty","unit","discount","unit_price","price","currency","purchased_at","place"}],
  "total": number or null,
  "discount": number}
 
-# Example — paper receipt
+# Example — paper receipt (Domestos had a 1.20 discount: 9.99 - 1.20 = 8.79)
 {"kind":"receipt",
  "items":[
-   {"name":"средство для туалета","category":"бытовая химия","qty":1,"unit":"шт","unit_price":9.99,"price":9.99,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"},
-   {"name":"творог","category":"молочная продукция","qty":1,"unit":"шт","unit_price":1.91,"price":1.91,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"}],
- "total":11.90,
+   {"name":"средство для туалета","category":"бытовая химия","qty":1,"unit":"шт","discount":1.20,"unit_price":9.99,"price":8.79,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"},
+   {"name":"творог","category":"молочная продукция","qty":1,"unit":"шт","discount":0,"unit_price":1.91,"price":1.91,"currency":"BYN","purchased_at":"2026-07-18 12:51:04","place":"ООО \\"ГРИНРОЗНИЦА\\", г. Гродно, пр. Янки Купалы 87"}],
+ "total":10.70,
  "discount":1.20}
 
 # Example — bank screenshot; caption: ОЗОН: чехол для наушников, отвертки
 {"kind":"bank",
  "items":[
-   {"name":"чехол для наушников","category":"аксессуары","qty":1,"unit":"шт","unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
-   {"name":"отвертки","category":"инструменты","qty":1,"unit":"шт","unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"}],
+   {"name":"чехол для наушников","category":"аксессуары","qty":1,"unit":"шт","discount":0,"unit_price":23.49,"price":23.49,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"},
+   {"name":"отвертки","category":"инструменты","qty":1,"unit":"шт","discount":0,"unit_price":9.85,"price":9.85,"currency":"BYN","purchased_at":"2026-08-13 20:37:00","place":"Retail BLR MINSKIY R-N OMBSHOP"}],
  "total":null,
  "discount":0}"""
 
@@ -93,7 +93,8 @@ REVISE_SYSTEM = """You are editing a list of already-parsed expense items accord
 Available categories: __CATEGORIES__
 Today is __TODAY__.
 Apply the correction to the current items and return the FULL updated list.
-Keep every field on each item: name, category, qty, unit, unit_price, price, currency, purchased_at, place, source.
+Keep every field on each item: name, category, qty, unit, discount, unit_price, price, currency, purchased_at, place, source.
+"discount" is the per-item discount amount (0 if none); price = qty * unit_price - discount.
 "unit" is the measure ("шт", "кг", "уп", "л"); set it from the correction (e.g. "количество 1 кг" -> qty 1, unit "кг").
 Recompute price = qty * unit_price whenever quantity or unit price changes.
 If the correction is or contains a date, set purchased_at on ALL items to it (keep the existing time part, else 00:00:00). "DD-MM-YYYY" and "DD.MM.YYYY" are day-month-year: "21-08-2026" -> "2026-08-21". Also accept "YYYY-MM-DD", "18 июля", "21 августа 2026", and "вчера"/"сегодня"/"позавчера" relative to today.

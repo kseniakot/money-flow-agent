@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     qty NUMERIC NOT NULL DEFAULT 1,
     unit TEXT NOT NULL DEFAULT 'шт',
     unit_price NUMERIC,
+    discount NUMERIC NOT NULL DEFAULT 0,
     price NUMERIC,
     currency TEXT NOT NULL,
     purchased_at TEXT NOT NULL,
@@ -101,6 +102,7 @@ def get_conn(db_path: Path | str | None = None) -> sqlite3.Connection:
 _MIGRATIONS = [
     ("expenses", "unit_price", "NUMERIC", None),
     ("expenses", "unit", "TEXT NOT NULL DEFAULT 'шт'", None),
+    ("expenses", "discount", "NUMERIC NOT NULL DEFAULT 0", None),
     (
         "subscriptions",
         "start_date",
@@ -174,8 +176,8 @@ def delete_expense(conn: sqlite3.Connection, expense_id: int) -> None:
 def get_expense(conn: sqlite3.Connection, expense_id: int, user_id: int) -> dict | None:
     row = conn.execute(
         """
-        SELECT e.id, e.qty, e.unit, e.unit_price, e.price, e.currency, e.purchased_at,
-               e.place, e.source,
+        SELECT e.id, e.qty, e.unit, e.unit_price, e.discount, e.price, e.currency,
+               e.purchased_at, e.place, e.source,
                p.name AS product_name, c.name AS category_name
         FROM expenses e
         JOIN products p ON p.id = e.product_id
@@ -241,8 +243,8 @@ def add_expenses(
             """
             INSERT INTO expenses
                 (user_id, product_id, wallet_id, subscription_id, qty, unit, unit_price,
-                 price, currency, purchased_at, place, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 discount, price, currency, purchased_at, place, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -252,6 +254,7 @@ def add_expenses(
                 it.get("qty", 1),
                 it.get("unit", "шт"),
                 it.get("unit_price"),
+                it.get("discount", 0),
                 it.get("price"),
                 it["currency"],
                 it["purchased_at"],
@@ -277,6 +280,7 @@ def save_expenses(
                 "qty": it.get("qty", 1),
                 "unit": it.get("unit", "шт"),
                 "unit_price": it.get("unit_price"),
+                "discount": it.get("discount", 0),
                 "price": it.get("price"),
                 "currency": it["currency"],
                 "purchased_at": it["purchased_at"],
@@ -293,8 +297,8 @@ def query_expenses(
     rows = conn.execute(
         """
         SELECT
-            e.id, e.qty, e.unit, e.unit_price, e.price, e.currency, e.purchased_at,
-            e.place, e.source,
+            e.id, e.qty, e.unit, e.unit_price, e.discount, e.price, e.currency,
+            e.purchased_at, e.place, e.source,
             p.name AS product_name,
             c.name AS category_name
         FROM expenses e
