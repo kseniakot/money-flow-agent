@@ -1,5 +1,5 @@
 import json
-import logging
+import structlog
 import os
 from contextlib import AsyncExitStack
 
@@ -8,7 +8,7 @@ from mcp.client.stdio import stdio_client
 
 from app.config import config
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 
 class MCPClient:

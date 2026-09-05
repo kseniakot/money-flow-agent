@@ -1,5 +1,5 @@
 import json
-import logging
+import structlog
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.llm import prompts
 from app.llm.client import get_llm
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 _FENCE = re.compile(r"^```(?:json)?|```$", re.MULTILINE)
 

@@ -13,6 +13,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "python-dotenv>=1.2.2",
     "python-telegram-bot[job-queue]>=22.8",
+    "structlog>=26.1.0",
 ]
 
 [build-system]

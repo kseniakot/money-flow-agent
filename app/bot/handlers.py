@@ -2,12 +2,12 @@ import asyncio
 import base64
 import csv
 import io
-import logging
 import shlex
 import tempfile
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta
 
+import structlog
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from telegram import (
@@ -36,7 +36,7 @@ from app.config import config
 from app.logging_setup import setup_logging
 from app.mcp.client import MCPClient
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 KB = InlineKeyboardMarkup(
     [
@@ -236,7 +236,7 @@ async def _pump(app, chat_id: int) -> None:
             "now": _now(),
             "today": _today(),
         }
-        log.info("pump chat %s: item %s source=%s", chat_id, front["id"], front["source"])
+        log.info("pump: item %s source=%s", front["id"], front["source"])
         result = await graph.ainvoke(state, cfg)
         if pid is not None:
             try:
@@ -311,18 +311,18 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
-    log.info("text from chat %s: %r", update.effective_chat.id, text)
+    log.info("text: %r", text)
     await _handle_input(update, context, "text", text, None)
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    log.info("voice from chat %s", update.effective_chat.id)
+    log.info("voice")
     await _handle_input(update, context, "voice", None, update.message.voice.file_id)
 
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     caption = update.message.caption or ""
-    log.info("photo from chat %s, caption=%r", update.effective_chat.id, caption)
+    log.info("photo: caption=%r", caption)
     await _handle_input(update, context, "photo", caption, update.message.photo[-1].file_id)
 
 
@@ -343,7 +343,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         pass
     chat_id = update.effective_chat.id
     cd = _cd(app, chat_id)
-    log.info("button %r from chat %s", q.data, chat_id)
+    log.info("button %r", q.data)
 
     if q.data.startswith("undo:"):
         try:
@@ -883,7 +883,7 @@ async def edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "today": _today(),
         "items": [item],
     }
-    log.info("edit: open expense %s for chat %s", eid, chat_id)
+    log.info("edit: open expense %s", eid)
     await update.message.reply_text(f"✏️ Правка #{eid}. Пришли изменения следующим сообщением.")
     cd["busy"] = True
     try:
@@ -991,7 +991,14 @@ async def _post_shutdown(app: Application) -> None:
         await stack.aclose()
 
 
-async def _ignore_edited(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _bind_context(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    structlog.contextvars.clear_contextvars()
+    chat = update.effective_chat
+    user = update.effective_user
+    if chat is not None:
+        structlog.contextvars.bind_contextvars(chat_id=chat.id)
+    if user is not None and user.username:
+        structlog.contextvars.bind_contextvars(user=user.username)
     if update.edited_message is not None:
         raise ApplicationHandlerStop
 
@@ -1018,7 +1025,7 @@ def main() -> None:
         .post_shutdown(_post_shutdown)
         .build()
     )
-    app.add_handler(TypeHandler(Update, _ignore_edited), group=-1)
+    app.add_handler(TypeHandler(Update, _bind_context), group=-1)
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("report", report_cmd))
     app.add_handler(CommandHandler("wallets", wallets_cmd))

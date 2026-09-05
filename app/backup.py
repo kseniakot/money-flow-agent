@@ -1,10 +1,10 @@
-import logging
+import structlog
 import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 
 def newest_backup_age_hours(backup_dir: Path) -> float | None:

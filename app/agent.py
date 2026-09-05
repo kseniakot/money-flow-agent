@@ -1,5 +1,5 @@
 import asyncio
-import logging
+import structlog
 from typing import Literal, TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -8,7 +8,7 @@ from langgraph.types import Command, interrupt
 
 from app.llm import extract
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 
 class State(TypedDict, total=False):
