@@ -300,6 +300,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/deposit — пополнить кошелёк\n"
         "/savings — копилка\n"
         "/correct — поправить баланс\n"
+        "/exchange — обмен валюты между кошельками\n"
         "/subs — подписки\n"
         "/categories — категории\n"
         "/currency — валюта по умолчанию\n"
@@ -610,6 +611,36 @@ async def correct_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     bal = await asyncio.to_thread(work)
     await update.message.reply_text(f"🛠 Баланс {currency} ({kind}) = {bal:.2f}")
+
+
+async def exchange_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 4:
+        await update.message.reply_text("Формат: /exchange 100 USD BYN 3.2 [savings]")
+        return
+    try:
+        amount = _float(args[0])
+        rate = _float(args[3])
+    except ValueError:
+        await update.message.reply_text("Сумма и курс числом: /exchange 100 USD BYN 3.2")
+        return
+    from_currency = args[1].upper()
+    to_currency = args[2].upper()
+    kind = "savings" if len(args) > 4 and args[4].lower() == "savings" else "spending"
+    user = await asyncio.to_thread(_register, update)
+
+    def work():
+        conn = db.get_conn(config.db_path)
+        try:
+            return db.exchange(conn, user["id"], from_currency, to_currency, amount, rate, kind)
+        finally:
+            conn.close()
+
+    r = await asyncio.to_thread(work)
+    await update.message.reply_text(
+        f"💱 {amount:.2f} {from_currency} → {r['received']:.2f} {to_currency} @{rate:g}\n"
+        f"{from_currency}: {r['from_balance']:.2f} · {to_currency}: {r['to_balance']:.2f}"
+    )
 
 
 async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -994,6 +1025,7 @@ def main() -> None:
     app.add_handler(CommandHandler("deposit", deposit_cmd))
     app.add_handler(CommandHandler("savings", savings_cmd))
     app.add_handler(CommandHandler("correct", correct_cmd))
+    app.add_handler(CommandHandler("exchange", exchange_cmd))
     app.add_handler(CommandHandler("subs", subs_cmd))
     app.add_handler(CommandHandler("categories", categories_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))

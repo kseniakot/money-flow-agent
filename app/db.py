@@ -379,6 +379,27 @@ def add_movement(
     return _row(row)
 
 
+def exchange(
+    conn: sqlite3.Connection,
+    user_id: int,
+    from_currency: str,
+    to_currency: str,
+    amount: float,
+    rate: float,
+    kind: str = "spending",
+) -> dict:
+    received = round(amount * rate, 2)
+    src = get_or_create_wallet(conn, user_id, from_currency, kind)
+    dst = get_or_create_wallet(conn, user_id, to_currency, kind)
+    add_movement(conn, src["id"], "deposit", -amount, f"обмен → {to_currency} @{rate:g}")
+    add_movement(conn, dst["id"], "deposit", received, f"обмен ← {from_currency} @{rate:g}")
+    return {
+        "received": received,
+        "from_balance": wallet_balance(conn, src["id"]),
+        "to_balance": wallet_balance(conn, dst["id"]),
+    }
+
+
 def create_subscription(
     conn: sqlite3.Connection,
     user_id: int,

@@ -177,6 +177,17 @@ def test_correction_movement():
     assert db.wallet_balance(conn, wallet["id"]) == 90.0
 
 
+def test_exchange_moves_between_wallets():
+    conn = make_conn()
+    user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
+    usd = db.get_or_create_wallet(conn, user["id"], "USD", "spending")
+    db.add_movement(conn, usd["id"], "deposit", 100.0)
+    r = db.exchange(conn, user["id"], "USD", "BYN", 40.0, 3.2)
+    assert r["received"] == 128.0
+    assert r["from_balance"] == 60.0
+    assert r["to_balance"] == 128.0
+
+
 def test_subscription_charge():
     conn = make_conn()
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
