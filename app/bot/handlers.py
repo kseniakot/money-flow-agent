@@ -300,7 +300,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/deposit — пополнить кошелёк\n"
         "/savings — копилка\n"
         "/correct — поправить баланс\n"
-        "/exchange — обмен валюты между кошельками\n"
+        "/exchange — обмен валюты (без аргументов история)\n"
         "/subs — подписки\n"
         "/categories — категории\n"
         "/currency — валюта по умолчанию\n"
@@ -615,6 +615,25 @@ async def correct_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def exchange_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
+    user = await asyncio.to_thread(_register, update)
+    if not args:
+        def show():
+            conn = db.get_conn(config.db_path)
+            try:
+                return db.list_exchanges(conn, user["id"])
+            finally:
+                conn.close()
+
+        rows = await asyncio.to_thread(show)
+        if not rows:
+            await update.message.reply_text("Обменов пока нет. Формат: /exchange 100 USD BYN 3.2")
+            return
+        lines = [
+            f"{r['occurred_at'][:16]}  {r['amount']:+.2f} {r['currency']}  {r['comment']}"
+            for r in rows
+        ]
+        await update.message.reply_text("💱 Обмены:\n" + "\n".join(lines))
+        return
     if len(args) < 4:
         await update.message.reply_text("Формат: /exchange 100 USD BYN 3.2 [savings]")
         return
@@ -627,7 +646,6 @@ async def exchange_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     from_currency = args[1].upper()
     to_currency = args[2].upper()
     kind = "savings" if len(args) > 4 and args[4].lower() == "savings" else "spending"
-    user = await asyncio.to_thread(_register, update)
 
     def work():
         conn = db.get_conn(config.db_path)

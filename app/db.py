@@ -400,6 +400,21 @@ def exchange(
     }
 
 
+def list_exchanges(conn: sqlite3.Connection, user_id: int, limit: int = 20) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT m.amount, m.comment, m.occurred_at, w.currency
+        FROM wallet_movements m
+        JOIN wallets w ON w.id = m.wallet_id
+        WHERE w.user_id = ? AND m.comment LIKE 'обмен%'
+        ORDER BY m.id DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def create_subscription(
     conn: sqlite3.Connection,
     user_id: int,

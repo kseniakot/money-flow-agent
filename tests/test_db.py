@@ -188,6 +188,17 @@ def test_exchange_moves_between_wallets():
     assert r["to_balance"] == 128.0
 
 
+def test_list_exchanges_returns_both_legs():
+    conn = make_conn()
+    user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
+    db.exchange(conn, user["id"], "USD", "BYN", 40.0, 3.2)
+    rows = db.list_exchanges(conn, user["id"])
+    assert len(rows) == 2
+    assert {r["currency"] for r in rows} == {"USD", "BYN"}
+    assert any(r["amount"] == -40.0 and r["currency"] == "USD" for r in rows)
+    assert any(r["amount"] == 128.0 and r["currency"] == "BYN" for r in rows)
+
+
 def test_subscription_charge():
     conn = make_conn()
     user = db.upsert_user(conn, tg_user_id=1, tg_username="me")
