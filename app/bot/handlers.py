@@ -695,10 +695,14 @@ async def ledger_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("\n".join(lines))
 
 
+_SMART_QUOTES = str.maketrans({c: '"' for c in "\u201c\u201d\u201e\u201f\u00ab\u00bb"})
+
+
 async def subs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await asyncio.to_thread(_register, update)
+    text = (update.message.text or "").translate(_SMART_QUOTES)
     try:
-        args = shlex.split(update.message.text or "")[1:]
+        args = shlex.split(text)[1:]
     except ValueError:
         args = context.args
 
